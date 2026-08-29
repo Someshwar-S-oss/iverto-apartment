@@ -232,3 +232,50 @@ export interface PaginatedResult<T> {
   page?: number;
   limit?: number;
 }
+
+export type NoticeCategory = 'GENERAL' | 'MAINTENANCE' | 'SECURITY' | 'EVENT' | 'EMERGENCY' | 'BILLING';
+
+export interface Notice {
+  id: string;
+  societyId: string;
+  title: string;
+  body: string;
+  category: NoticeCategory;
+  isPinned: boolean;
+  authorName?: string;
+  authorRole?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type ComplaintStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+export type ComplaintPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type ComplaintCategory =
+  | 'PLUMBING'
+  | 'ELECTRICAL'
+  | 'SECURITY'
+  | 'PARKING'
+  | 'NOISE'
+  | 'CLEANLINESS'
+  | 'LIFT_ELEVATOR'
+  | 'OTHER';
+
+export interface Complaint {
+  id: string;
+  societyId: string;
+  unitId?: string;
+  unitNumber?: string;
+  buildingName?: string;
+  residentName: string;
+  residentPhone?: string;
+  title: string;
+  description: string;
+  category: ComplaintCategory;
+  priority: ComplaintPriority;
+  status: ComplaintStatus;
+  adminNotes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  resolvedAt?: string;
+}
+

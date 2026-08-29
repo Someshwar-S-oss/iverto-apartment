@@ -11,6 +11,9 @@ import type {
   Unit,
   UnitRole,
   SocietyRole,
+  Notice,
+  Complaint,
+  ComplaintStatus,
 } from './types';
 
 export interface CreateSocietyUserPayload {
@@ -222,6 +225,233 @@ export const societyAdminApi = {
     );
     return response.data;
   },
+
+  /**
+   * Get community notices/announcements for a society.
+   */
+  getNotices: async (societyId: string): Promise<Notice[]> => {
+    const storageKey = `iverto_notices_${societyId}`;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        // fallback
+      }
+    }
+    const defaultNotices: Notice[] = [
+      {
+        id: 'not-1',
+        societyId,
+        title: 'Elevator Maintenance in Tower B',
+        body: 'Scheduled preventative maintenance for Passenger Lift 2 in Tower B on Saturday from 10:00 AM to 2:00 PM. Please use Lift 1 during this window.',
+        category: 'MAINTENANCE',
+        isPinned: true,
+        authorName: 'Society Management',
+        authorRole: 'SOCIETY_ADMIN',
+        createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
+      },
+      {
+        id: 'not-2',
+        societyId,
+        title: 'New M50 Facial Recognition Protocol at Main Gate',
+        body: 'All domestic helpers, cooks, and recurring staff members must have their biometric profile paired at the security desk for automatic boom barrier opening.',
+        category: 'SECURITY',
+        isPinned: true,
+        authorName: 'Chief Security Officer',
+        authorRole: 'GUARD_SUPERVISOR',
+        createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
+      },
+      {
+        id: 'not-3',
+        societyId,
+        title: 'Annual General Body Meeting (AGM) - Save the Date',
+        body: 'The Annual General Body Meeting for the financial year will be hosted at the Community Clubhouse on the second Sunday of next month at 6:00 PM.',
+        category: 'EVENT',
+        isPinned: false,
+        authorName: 'Management Committee',
+        authorRole: 'SOCIETY_ADMIN',
+        createdAt: new Date(Date.now() - 3600000 * 72).toISOString(),
+      },
+      {
+        id: 'not-4',
+        societyId,
+        title: 'Water Tank Cleaning Notification',
+        body: 'Overhead water tank cleaning will take place on Tuesday between 1:00 PM and 5:00 PM. Water supply may experience low pressure.',
+        category: 'MAINTENANCE',
+        isPinned: false,
+        authorName: 'Facility Manager',
+        authorRole: 'SOCIETY_ADMIN',
+        createdAt: new Date(Date.now() - 3600000 * 120).toISOString(),
+      },
+    ];
+    localStorage.setItem(storageKey, JSON.stringify(defaultNotices));
+    return defaultNotices;
+  },
+
+  /**
+   * Create a new notice/announcement.
+   */
+  createNotice: async (
+    societyId: string,
+    data: Omit<Notice, 'id' | 'societyId' | 'createdAt'>,
+  ): Promise<Notice> => {
+    const storageKey = `iverto_notices_${societyId}`;
+    const notices = await societyAdminApi.getNotices(societyId);
+    const newNotice: Notice = {
+      id: `not-${Date.now()}`,
+      societyId,
+      title: data.title,
+      body: data.body,
+      category: data.category || 'GENERAL',
+      isPinned: data.isPinned ?? false,
+      authorName: data.authorName || 'Society Admin',
+      authorRole: data.authorRole || 'SOCIETY_ADMIN',
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [newNotice, ...notices];
+    localStorage.setItem(storageKey, JSON.stringify(updated));
+    return newNotice;
+  },
+
+  /**
+   * Delete a notice.
+   */
+  deleteNotice: async (societyId: string, noticeId: string): Promise<boolean> => {
+    const storageKey = `iverto_notices_${societyId}`;
+    const notices = await societyAdminApi.getNotices(societyId);
+    const updated = notices.filter((n) => n.id !== noticeId);
+    localStorage.setItem(storageKey, JSON.stringify(updated));
+    return true;
+  },
+
+  /**
+   * Toggle pinned state of a notice.
+   */
+  togglePinNotice: async (societyId: string, noticeId: string): Promise<Notice | null> => {
+    const storageKey = `iverto_notices_${societyId}`;
+    const notices = await societyAdminApi.getNotices(societyId);
+    let target: Notice | null = null;
+    const updated = notices.map((n) => {
+      if (n.id === noticeId) {
+        target = { ...n, isPinned: !n.isPinned, updatedAt: new Date().toISOString() };
+        return target;
+      }
+      return n;
+    });
+    localStorage.setItem(storageKey, JSON.stringify(updated));
+    return target;
+  },
+
+  /**
+   * Get resident complaints.
+   */
+  getComplaints: async (societyId: string): Promise<Complaint[]> => {
+    const storageKey = `iverto_complaints_${societyId}`;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        // fallback
+      }
+    }
+    const defaultComplaints: Complaint[] = [
+      {
+        id: 'cmp-1',
+        societyId,
+        unitNumber: 'A-402',
+        buildingName: 'Tower A',
+        residentName: 'Rajesh Sharma',
+        residentPhone: '+91 98765 43210',
+        title: 'Water seepage near main bathroom wall',
+        description: 'Consistent dampness and water staining observed on the common wall of bathroom in A-402 since last monsoon shower.',
+        category: 'PLUMBING',
+        priority: 'HIGH',
+        status: 'OPEN',
+        createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
+      },
+      {
+        id: 'cmp-2',
+        societyId,
+        unitNumber: 'B-1104',
+        buildingName: 'Tower B',
+        residentName: 'Priya Iyer',
+        residentPhone: '+91 98112 34567',
+        title: 'Corridor emergency light flickering at night',
+        description: '11th floor east-wing corridor light has loose wiring and flickers continuously between 8 PM and midnight.',
+        category: 'ELECTRICAL',
+        priority: 'MEDIUM',
+        status: 'IN_PROGRESS',
+        adminNotes: 'Electrician dispatched; replacement LED fixture scheduled for tomorrow morning.',
+        createdAt: new Date(Date.now() - 3600000 * 28).toISOString(),
+      },
+      {
+        id: 'cmp-3',
+        societyId,
+        unitNumber: 'C-203',
+        buildingName: 'Tower C',
+        residentName: 'Amit Patel',
+        residentPhone: '+91 97654 32109',
+        title: 'Unauthorized vehicle parked in allocated slot #44',
+        description: 'Black SUV MH-02-CD-5678 was parked in my reserved basement slot #44 without prior intimation.',
+        category: 'PARKING',
+        priority: 'HIGH',
+        status: 'RESOLVED',
+        adminNotes: 'Security identified visitor car and had it relocated to visitor parking bay #8.',
+        createdAt: new Date(Date.now() - 3600000 * 50).toISOString(),
+        resolvedAt: new Date(Date.now() - 3600000 * 42).toISOString(),
+      },
+      {
+        id: 'cmp-4',
+        societyId,
+        unitNumber: 'A-801',
+        buildingName: 'Tower A',
+        residentName: 'Sunita Verma',
+        residentPhone: '+91 99201 12233',
+        title: 'Unattended pet barking on balcony during work hours',
+        description: 'Repeated excessive pet noise from neighboring flat between 2 PM and 5 PM on weekdays.',
+        category: 'NOISE',
+        priority: 'LOW',
+        status: 'CLOSED',
+        adminNotes: 'Resident contacted and advised on pet courtesy hours.',
+        createdAt: new Date(Date.now() - 3600000 * 120).toISOString(),
+        resolvedAt: new Date(Date.now() - 3600000 * 96).toISOString(),
+      },
+    ];
+    localStorage.setItem(storageKey, JSON.stringify(defaultComplaints));
+    return defaultComplaints;
+  },
+
+  /**
+   * Update complaint status and admin notes.
+   */
+  updateComplaintStatus: async (
+    societyId: string,
+    complaintId: string,
+    status: ComplaintStatus,
+    adminNotes?: string,
+  ): Promise<Complaint | null> => {
+    const storageKey = `iverto_complaints_${societyId}`;
+    const complaints = await societyAdminApi.getComplaints(societyId);
+    let target: Complaint | null = null;
+    const updated = complaints.map((c) => {
+      if (c.id === complaintId) {
+        target = {
+          ...c,
+          status,
+          adminNotes: adminNotes !== undefined ? adminNotes : c.adminNotes,
+          resolvedAt: status === 'RESOLVED' || status === 'CLOSED' ? new Date().toISOString() : c.resolvedAt,
+          updatedAt: new Date().toISOString(),
+        };
+        return target;
+      }
+      return c;
+    });
+    localStorage.setItem(storageKey, JSON.stringify(updated));
+    return target;
+  },
 };
 
 export default societyAdminApi;
+
