@@ -70,9 +70,10 @@ export const ChangePasswordPage: React.FC = () => {
       setIsSuccess(true);
       success(res.message || 'Password successfully updated!');
 
-      // Refresh application contexts after password change
-      const contexts = await fetchContexts();
-      const nextPath = getPrimaryRedirectPath(contexts[0], res.user || user);
+      // Refresh application contexts after password change with new credentials
+      const updatedUser = res.user || user;
+      const contexts = await fetchContexts(updatedUser, res.accessToken);
+      const nextPath = getPrimaryRedirectPath(contexts[0] || null, updatedUser);
 
       // Brief delay for positive feedback before navigating
       setTimeout(() => {

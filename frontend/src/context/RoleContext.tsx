@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
+import apiClient from '../api/client';
 import authApi from '../api/auth.api';
 import type { AppContext, User } from '../api/types';
 
@@ -10,7 +11,7 @@ export interface RoleContextType {
   activeContext: AppContext | null;
   isLoadingContexts: boolean;
   switchContext: (contextId: string) => AppContext | null;
-  fetchContexts: () => Promise<AppContext[]>;
+  fetchContexts: (overrideUser?: User | null, overrideToken?: string | null) => Promise<AppContext[]>;
   getPrimaryRedirectPath: (targetContext?: AppContext | null, userObj?: User | null) => string;
 }
 
@@ -34,22 +35,26 @@ export const calculateRedirectPath = (
     return '/superadmin/overview';
   }
 
-  if (!context) {
-    if (user?.isSuperadmin) return '/superadmin/overview';
-    return '/login';
+  if (context) {
+    switch (context.type) {
+      case 'GLOBAL':
+        return '/superadmin/overview';
+      case 'SOCIETY':
+        return '/admin/dashboard';
+      case 'GATE':
+        return '/guard/kiosk';
+      case 'UNIT':
+      default:
+        return '/resident/dashboard';
+    }
   }
 
-  switch (context.type) {
-    case 'GLOBAL':
-      return '/superadmin/overview';
-    case 'SOCIETY':
-      return '/admin/dashboard';
-    case 'GATE':
-      return '/guard/kiosk';
-    case 'UNIT':
-    default:
-      return '/resident/dashboard';
+  // Fallback when context list is empty or loading for an authenticated user
+  if (user?.isSuperadmin) {
+    return '/superadmin/overview';
   }
+
+  return '/resident/dashboard';
 };
 
 export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -111,48 +116,64 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [],
   );
 
-  const fetchContexts = useCallback(async (): Promise<AppContext[]> => {
-    if (!isAuthenticated) {
-      setContexts([]);
-      setActiveContext(null);
-      return [];
-    }
+  const fetchContexts = useCallback(
+    async (overrideUser?: User | null, overrideToken?: string | null): Promise<AppContext[]> => {
+      const activeToken = overrideToken || (typeof window !== 'undefined' ? localStorage.getItem('iverto_token') : null);
+      const activeUser =
+        overrideUser !== undefined
+          ? overrideUser
+          : user ||
+            (typeof window !== 'undefined' && localStorage.getItem('iverto_user')
+              ? JSON.parse(localStorage.getItem('iverto_user')!)
+              : null);
 
-    setIsLoadingContexts(true);
-    try {
-      let fetched = await authApi.getMyContexts();
+      if (!activeToken) {
+        setContexts([]);
+        setActiveContext(null);
+        return [];
+      }
 
-      // If user is superadmin, ensure GLOBAL context is in the list
-      if (user?.isSuperadmin) {
-        const hasGlobal = fetched.some((c) => c.type === 'GLOBAL');
-        if (!hasGlobal) {
-          fetched = [GLOBAL_SUPERADMIN_CONTEXT, ...fetched];
+      setIsLoadingContexts(true);
+      try {
+        if (overrideToken) {
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${overrideToken}`;
         }
+
+        let fetched = await authApi.getMyContexts();
+
+        // If user is superadmin, ensure GLOBAL context is in the list
+        if (activeUser?.isSuperadmin) {
+          const hasGlobal = fetched.some((c) => c.type === 'GLOBAL');
+          if (!hasGlobal) {
+            fetched = [GLOBAL_SUPERADMIN_CONTEXT, ...fetched];
+          }
+        }
+
+        setContexts(fetched);
+
+        const chosen = selectInitialContext(fetched, activeUser);
+        setActiveContext(chosen);
+
+        if (chosen && typeof window !== 'undefined') {
+          localStorage.setItem(ACTIVE_CONTEXT_KEY, chosen.id);
+        }
+
+        return fetched;
+      } catch (err) {
+        console.error('Failed to fetch user contexts:', err);
+        if (activeUser?.isSuperadmin) {
+          const fallback = [GLOBAL_SUPERADMIN_CONTEXT];
+          setContexts(fallback);
+          setActiveContext(GLOBAL_SUPERADMIN_CONTEXT);
+          return fallback;
+        }
+        return [];
+      } finally {
+        setIsLoadingContexts(false);
       }
-
-      setContexts(fetched);
-
-      const chosen = selectInitialContext(fetched, user);
-      setActiveContext(chosen);
-
-      if (chosen && typeof window !== 'undefined') {
-        localStorage.setItem(ACTIVE_CONTEXT_KEY, chosen.id);
-      }
-
-      return fetched;
-    } catch (err) {
-      console.error('Failed to fetch user contexts:', err);
-      if (user?.isSuperadmin) {
-        const fallback = [GLOBAL_SUPERADMIN_CONTEXT];
-        setContexts(fallback);
-        setActiveContext(GLOBAL_SUPERADMIN_CONTEXT);
-        return fallback;
-      }
-      return [];
-    } finally {
-      setIsLoadingContexts(false);
-    }
-  }, [isAuthenticated, user, selectInitialContext]);
+    },
+    [user, selectInitialContext],
+  );
 
   const switchContext = useCallback(
     (contextId: string): AppContext | null => {

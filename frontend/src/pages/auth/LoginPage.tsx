@@ -99,12 +99,12 @@ export const LoginPage: React.FC = () => {
         return;
       }
 
-      const contexts = await fetchContexts();
+      const contexts = await fetchContexts(res.user, res.accessToken);
       const fromPath = (location.state as any)?.from?.pathname;
       if (fromPath && fromPath !== '/login' && fromPath !== '/force-change-password') {
         navigate(fromPath, { replace: true });
       } else {
-        const redirectPath = getPrimaryRedirectPath(contexts[0], res.user);
+        const redirectPath = getPrimaryRedirectPath(contexts[0] || null, res.user);
         navigate(redirectPath, { replace: true });
       }
     } catch (err: any) {
