@@ -68,11 +68,13 @@ export class RbacService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     try {
       const redisUrl = this.config.get<string>('redis.url') || process.env.REDIS_URL;
+      const keyPrefix = this.config.get<string>('redis.keyPrefix') || process.env.REDIS_KEY_PREFIX || 'iverto:gate:';
       if (redisUrl) {
         this.redisClient = new Redis(redisUrl, {
           lazyConnect: true,
           maxRetriesPerRequest: 1,
           enableOfflineQueue: false,
+          keyPrefix,
           retryStrategy: () => null,
         });
 

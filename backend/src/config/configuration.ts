@@ -5,6 +5,7 @@ export default () => ({
   },
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
+    keyPrefix: process.env.REDIS_KEY_PREFIX || 'iverto:gate:',
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'dev_secret_key_change_in_prod',
