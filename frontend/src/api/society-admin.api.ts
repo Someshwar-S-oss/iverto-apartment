@@ -120,6 +120,17 @@ export const societyAdminApi = {
   },
 
   /**
+   * List all residents, guards, and admins registered for this society.
+   * Calls GET /api/v1/web/societies/:societyId/users.
+   */
+  getUsers: async (societyId: string): Promise<any[]> => {
+    const response = await apiClient.get<any[]>(
+      `/api/v1/web/societies/${societyId}/users`,
+    );
+    return response.data;
+  },
+
+  /**
    * Create a resident, guard, supervisor, or society admin user with temporary credentials.
    * Calls POST /api/v1/web/societies/:societyId/users.
    */

@@ -94,67 +94,12 @@ export const UsersPage: React.FC = () => {
       }
 
       try {
-        const unitsData = await societyAdminApi.getUnits(societyId);
+        const [unitsData, usersData] = await Promise.all([
+          societyAdminApi.getUnits(societyId).catch(() => []),
+          societyAdminApi.getUsers(societyId).catch(() => []),
+        ]);
         setUnits(unitsData);
-
-        // Retrieve cached roster or seed sample directory with units
-        const storageKey = `iverto_roster_${societyId}`;
-        const stored = localStorage.getItem(storageKey);
-        if (stored) {
-          try {
-            setRoster(JSON.parse(stored));
-          } catch (e) {
-            // fallback
-          }
-        } else {
-          // Generate default roster entries based on society units
-          const sampleRoster: SocietyUserRosterItem[] = [
-            {
-              id: 'usr-101',
-              name: 'Dr. Arjun Mehta',
-              email: 'arjun.mehta@example.com',
-              phone: '9876543210',
-              role: 'OWNER',
-              unitNumber: unitsData[0]?.unitNumber || '101',
-              buildingName: unitsData[0]?.buildingName || 'Tower A',
-              isPrimary: true,
-              status: 'ACTIVE',
-              createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
-            },
-            {
-              id: 'usr-102',
-              name: 'Kavita Sen',
-              email: 'kavita.sen@example.com',
-              phone: '9822334455',
-              role: 'TENANT',
-              unitNumber: unitsData[1]?.unitNumber || '102',
-              buildingName: unitsData[1]?.buildingName || 'Tower A',
-              isPrimary: true,
-              status: 'ACTIVE',
-              createdAt: new Date(Date.now() - 3600000 * 72).toISOString(),
-            },
-            {
-              id: 'usr-103',
-              name: 'Ram Singh (Gate Captain)',
-              email: 'ramsingh.guard@iverto.in',
-              phone: '9811122233',
-              role: 'GUARD_SUPERVISOR',
-              status: 'ACTIVE',
-              createdAt: new Date(Date.now() - 3600000 * 96).toISOString(),
-            },
-            {
-              id: 'usr-104',
-              name: 'Mohan Lal (Main Gate)',
-              email: 'mohanlal.guard@iverto.in',
-              phone: '9799887766',
-              role: 'GUARD',
-              status: 'ACTIVE',
-              createdAt: new Date(Date.now() - 3600000 * 120).toISOString(),
-            },
-          ];
-          setRoster(sampleRoster);
-          localStorage.setItem(storageKey, JSON.stringify(sampleRoster));
-        }
+        setRoster(usersData);
       } catch (err: any) {
         const msg =
           err?.response?.data?.message ||
@@ -198,26 +143,8 @@ export const UsersPage: React.FC = () => {
         isPrimary: isResidentRole ? formData.isPrimary : undefined,
       });
 
-      // Find unit number if resident
-      const assignedUnit = units.find((u) => u.id === formData.unitId);
-
-      // Create new roster entry and save to localStorage
-      const newEntry: SocietyUserRosterItem = {
-        id: response.user.id,
-        name: response.user.name,
-        email: response.user.email,
-        phone: response.user.phone,
-        role: response.role,
-        unitNumber: assignedUnit?.unitNumber,
-        buildingName: assignedUnit?.buildingName || undefined,
-        isPrimary: formData.isPrimary,
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString(),
-      };
-
-      const updatedRoster = [newEntry, ...roster];
-      setRoster(updatedRoster);
-      localStorage.setItem(`iverto_roster_${societyId}`, JSON.stringify(updatedRoster));
+      // Reload live roster from database
+      await loadData();
 
       // Show temporary credentials modal
       const tempPass = response.tempPassword || `${formData.phone.trim()}@iverto`;

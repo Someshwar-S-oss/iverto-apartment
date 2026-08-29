@@ -197,6 +197,52 @@ export class SocietyAdminController {
     };
   }
 
+  @Get('users')
+  @RequirePermission('member.manage', ScopeType.SOCIETY)
+  async listUsers(@Param('societyId') societyId: string) {
+    const residentRows = await this.drizzle.db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        phone: users.phone,
+        role: unitMemberships.role,
+        unitId: units.id,
+        unitNumber: units.unitNumber,
+        buildingId: units.buildingId,
+        buildingName: buildings.name,
+        isPrimary: unitMemberships.isPrimary,
+        status: users.status,
+        createdAt: users.createdAt,
+      })
+      .from(unitMemberships)
+      .innerJoin(units, eq(unitMemberships.unitId, units.id))
+      .leftJoin(buildings, eq(units.buildingId, buildings.id))
+      .innerJoin(users, eq(unitMemberships.userId, users.id))
+      .where(eq(units.societyId, societyId));
+
+    const societyRoleRows = await this.drizzle.db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        phone: users.phone,
+        role: societyRoles.role,
+        status: users.status,
+        createdAt: users.createdAt,
+      })
+      .from(societyRoles)
+      .innerJoin(users, eq(societyRoles.userId, users.id))
+      .where(
+        and(
+          eq(societyRoles.societyId, societyId),
+          eq(societyRoles.active, true),
+        ),
+      );
+
+    return [...residentRows, ...societyRoleRows];
+  }
+
   @Get('units')
   @RequirePermission('unit.manage', ScopeType.SOCIETY)
   async listUnits(@Param('societyId') societyId: string) {
