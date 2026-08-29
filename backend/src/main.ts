@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { SharedHttpIoAdapter } from './common/adapters/shared-http-io.adapter';
 
@@ -27,11 +28,48 @@ async function bootstrap() {
   const adapter = new SharedHttpIoAdapter(app);
   app.useWebSocketAdapter(adapter);
 
+  // Swagger API Documentation Setup
+  const config = new DocumentBuilder()
+    .setTitle('Iverto Gate Management API')
+    .setDescription(
+      'Cloud Backend API for Gated Community Management, M50 Facial Recognition Biometrics, Scoped RBAC, and Resident/Guard Mobile Applications.',
+    )
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter your JWT access token',
+        in: 'header',
+      },
+      'JWT-auth',
+    )
+    .addTag('Auth', 'User Authentication, Login & Mandatory Password Reset')
+    .addTag('Web - Superadmin', 'Platform-wide Client Society Onboarding, Global Hardware & Analytics')
+    .addTag('Web - Society Admin', 'Society Dashboard, Roster Management, Units, Staff & Audit Logs')
+    .addTag('Mobile - Auth', 'Context Switching & FCM Push Token Registration')
+    .addTag('Mobile - Resident', 'Unit Visitor Approvals, Entry Events, Passcodes & Delivery Rules')
+    .addTag('Mobile - Guard', 'Gate Directory Search, Visitor Entry Logging, Passcode Verification & Photo Streaming')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document, {
+    customSiteTitle: 'Iverto API Documentation',
+    swaggerOptions: {
+      persistAuthorization: true,
+      tagsSorter: 'alpha',
+      operationsSorter: 'alpha',
+    },
+  });
+
   const configService = app.get(ConfigService);
   const port = configService.get<number>('port') || 8031;
 
   await app.listen(port);
-  logger.log(`Iverto Backend running on port ${port}`);
+  logger.log(`🚀 Iverto Backend running on port ${port}`);
+  logger.log(`📚 Swagger API Docs available at http://localhost:${port}/api/docs`);
 }
 
 bootstrap();

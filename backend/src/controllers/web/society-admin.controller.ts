@@ -59,6 +59,10 @@ export interface UpdateStaffDto {
   status?: 'ACTIVE' | 'INACTIVE';
 }
 
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+
+@ApiTags('Web - Society Admin')
+@ApiBearerAuth('JWT-auth')
 @Controller('api/v1/web/societies/:societyId')
 @UseGuards(JwtAuthGuard, PasswordChangeGuard, RbacScopeGuard)
 export class SocietyAdminController {

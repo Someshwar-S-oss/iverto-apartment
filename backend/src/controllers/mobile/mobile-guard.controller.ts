@@ -48,6 +48,10 @@ export interface VerifyPasscodeBody {
   mimeType?: string;
 }
 
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+
+@ApiTags('Mobile - Guard')
+@ApiBearerAuth('JWT-auth')
 @Controller('api/v1/mobile/gates/:gateId')
 @UseGuards(JwtAuthGuard, PasswordChangeGuard, RbacScopeGuard)
 export class MobileGuardController {

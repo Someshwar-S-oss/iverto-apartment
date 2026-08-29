@@ -17,6 +17,10 @@ export interface RegisterDeviceTokenDto {
   platform: 'android' | 'ios' | 'web';
 }
 
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+
+@ApiTags('Mobile - Auth')
+@ApiBearerAuth('JWT-auth')
 @Controller('api/v1/mobile')
 @UseGuards(JwtAuthGuard, PasswordChangeGuard)
 export class MobileAuthController {

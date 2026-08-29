@@ -47,6 +47,10 @@ export interface UpdateDeliveryPermissionDto {
   silent?: boolean;
 }
 
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+
+@ApiTags('Mobile - Resident')
+@ApiBearerAuth('JWT-auth')
 @Controller('api/v1/mobile/units/:unitId')
 @UseGuards(JwtAuthGuard, PasswordChangeGuard, RbacScopeGuard)
 export class MobileResidentController {

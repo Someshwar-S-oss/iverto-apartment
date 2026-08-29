@@ -42,6 +42,10 @@ export interface ProvisionDeviceDto {
   authToken?: string;
 }
 
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+
+@ApiTags('Web - Superadmin')
+@ApiBearerAuth('JWT-auth')
 @Controller('api/v1/web/superadmin')
 @UseGuards(JwtAuthGuard, PasswordChangeGuard, RbacScopeGuard)
 export class SuperadminController {
