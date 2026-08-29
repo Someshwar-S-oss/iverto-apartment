@@ -82,7 +82,14 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
     if (!isScopeAllowed) {
       const fallbackPath = getPrimaryRedirectPath();
-      return <Navigate to={fallbackPath} replace />;
+      if (fallbackPath && fallbackPath !== location.pathname) {
+        return <Navigate to={fallbackPath} replace />;
+      }
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50/50">
+          <CenteredSpinner label="Switching workspace..." size="lg" />
+        </div>
+      );
     }
   }
 
@@ -98,7 +105,14 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
     if (!isRoleAllowed) {
       const fallbackPath = getPrimaryRedirectPath();
-      return <Navigate to={fallbackPath} replace />;
+      if (fallbackPath && fallbackPath !== location.pathname) {
+        return <Navigate to={fallbackPath} replace />;
+      }
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50/50">
+          <CenteredSpinner label="Switching workspace..." size="lg" />
+        </div>
+      );
     }
   }
 

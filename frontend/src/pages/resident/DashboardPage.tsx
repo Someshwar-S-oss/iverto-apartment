@@ -56,7 +56,11 @@ export const DashboardPage: React.FC = () => {
   // Load all summary dashboard data for this unit
   const loadDashboardData = useCallback(
     async (showRefreshing = false) => {
-      if (!unitId) return;
+      if (!unitId) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
 
       if (showRefreshing) {
         setIsRefreshing(true);

@@ -53,7 +53,11 @@ export const DashboardPage: React.FC = () => {
   // Load KPI stats and initial log stream
   const loadDashboardData = useCallback(
     async (showRefreshingState = false) => {
-      if (!societyId) return;
+      if (!societyId) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
 
       if (showRefreshingState) {
         setIsRefreshing(true);
