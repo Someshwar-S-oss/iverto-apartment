@@ -12,7 +12,8 @@
     "test:e2e": "jest --testPathPattern=e2e-spec",
     "m50:simulate": "ts-node scripts/m50-simulator.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "ts-node scripts/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
