@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { eq, and, or } from 'drizzle-orm';
@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 import { DrizzleService } from '../../database/drizzle.service';
 import { devices, m50SyncCursors, staff, users, entryEvents, visitorImages } from '../../database/schema';
 import { M50XmlCodec } from './m50.xml-codec';
+import { FanoutService } from '../staff/fanout.service';
 
 @Injectable()
 export class M50Service {
@@ -14,6 +15,9 @@ export class M50Service {
   constructor(
     private readonly drizzle: DrizzleService,
     private readonly config: ConfigService,
+    @Optional()
+    @Inject(forwardRef(() => FanoutService))
+    private readonly fanoutService?: FanoutService,
   ) {}
 
   /**
@@ -309,6 +313,20 @@ export class M50Service {
           });
         } catch (imgErr) {
           this.logger.error('Failed to persist visitor image from LogImage', imgErr);
+        }
+      }
+
+      // Fan-out staff arrival/departure notifications if staff member matched
+      if (staffId && this.fanoutService) {
+        try {
+          await this.fanoutService.handleStaffScan(
+            staffId,
+            direction,
+            occurredAt,
+            device.gateId || undefined,
+          );
+        } catch (fanoutErr) {
+          this.logger.error(`Failed to execute fanout for staff ${staffId}`, fanoutErr);
         }
       }
 

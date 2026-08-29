@@ -3,11 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { M50Service } from './m50.service';
 import { DrizzleService } from '../../database/drizzle.service';
 import { M50XmlCodec } from './m50.xml-codec';
+import { FanoutService } from '../staff/fanout.service';
 
 describe('M50Service', () => {
   let service: M50Service;
   let mockDb: any;
   let mockConfig: any;
+  let mockFanout: any;
 
   beforeEach(async () => {
     mockDb = {
@@ -24,6 +26,10 @@ describe('M50Service', () => {
       }),
     };
 
+    mockFanout = {
+      handleStaffScan: jest.fn().mockResolvedValue({ deliveredUnits: 1, units: ['unit-1'] }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         M50Service,
@@ -34,6 +40,10 @@ describe('M50Service', () => {
         {
           provide: ConfigService,
           useValue: mockConfig,
+        },
+        {
+          provide: FanoutService,
+          useValue: mockFanout,
         },
       ],
     }).compile();
@@ -255,6 +265,7 @@ describe('M50Service', () => {
       expect(parsed.Message.Response).toBe('TimeLog_v2');
       expect(parsed.Message.TransID).toBe('trans-999');
       expect(parsed.Message.Result).toBe('OK');
+      expect(mockFanout.handleStaffScan).toHaveBeenCalledWith('staff-1', 'IN', expect.any(Date), 'gate-1');
     });
 
     it('should ingest scan and map to Resident User by phone if staff not found', async () => {
