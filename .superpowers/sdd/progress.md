@@ -1,16 +1,15 @@
 # Subagent-Driven Development Progress Ledger
 
-Plan: `docs/superpowers/plans/2026-08-29-nest-neon-backend.md`
+Branch: master
+Plan: docs/superpowers/plans/2026-08-29-frontend-web-app.md
 
-| Task | Description | Status | Commits | Notes |
-|---|---|---|---|---|
-| Task 1 | Project Scaffolding & Configuration | COMPLETE | `ce3657a` | NestJS 11, TypeScript, Drizzle Config, AppConfigModule |
-| Task 2 | Database Layer & Drizzle Schema with Neon RLS | COMPLETE | `7e30f89` | 18 tables pushed to Neon, RLS helper, DrizzleService |
-| Task 3 | Authentication & Password-Based Onboarding Engine | COMPLETE | `88af7d5` | Email auth, `<phone>@iverto` temp password, PasswordChangeGuard |
-| Task 4 | Dynamic Scoped RBAC Engine & Context Switcher | COMPLETE | `a9d3e78` | Scoped permissions (Action@Scope), Superadmin override, Redis cache |
-| Task 5 | Direct-to-Cloud M50 Terminal Raw WebSocket Server | COMPLETE | `4d37a00` | XML Codec, UTF-16LE, TimeLog_v2, KeepAlive, SharedHttpIoAdapter |
-| Task 6 | Real-time Socket.IO Gateway & Notification Engine | COMPLETE | `5679c43` | Socket.IO rooms (unit/gate/society), FCM high-priority data messages |
-| Task 7 | Staff Management & Multi-Unit Arrival Fan-Out | COMPLETE | `0023c6a` | Staff registry, M50 face-match fan-out, FCM push & WS |
-| Task 8 | Gate Operations, Visitor Approvals & Neon Image Storage | COMPLETE | `f4211f9` | Atomic single-winner approvals, Neon image storage, Delivery rules |
-| Task 9 | API Routing & Controllers (Superadmin, Admin Web, Mobile) | COMPLETE | `cfb09e5` | Superadmin, Society Admin, Mobile Resident & Guard REST routes |
-| Task 10 | Hardware Simulator & End-to-End Verification Suite | COMPLETE | `285b766` | M50 Simulator script, E2E WebSocket ingest, Approvals race, RLS |
+Task 1: complete (commit b10bff1, build clean)
+Task 2: complete (commit 8524659, API client and audio synth)
+Task 3: complete (commit cc229fb, Context providers for Auth, Role, Realtime, Toast)
+Task 4: complete (commit 173d639, UI primitives, layouts, IncomingApprovalModal)
+Task 5: complete (commit 69eeefd, Login, ChangePassword, ProtectedRoute)
+Task 6: complete (commit 9b75794, Superadmin Overview, Societies, Devices)
+Task 7: complete (commit 846dd26, Society Admin Dashboard, Units, Users, Staff, GateLogs, Devices, Notices, Complaints)
+Task 8: complete (commit 6ffe637, Resident Dashboard, Approvals, Staff, Deliveries, Passcodes, Activity, Community)
+Task 9: complete (commit 0ac5b9b, Guard Kiosk console, VisitorEntryModal, DeliveryModal, PasscodeModal, ExitModal, DecisionOverlay)
+Task 10: complete (commit 4af0c20, AppRoutes, App wiring, NotFoundPage, production build verified)
