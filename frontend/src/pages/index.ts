@@ -1,10 +1,11 @@
 export * from './auth';
 export * from './superadmin';
+export * from './resident';
 export {
-  DashboardPage,
+  DashboardPage as AdminDashboardPage,
   UnitsPage,
   UsersPage,
-  StaffPage,
+  StaffPage as AdminStaffPage,
   GateLogsPage,
   DevicesPage as AdminDevicesPage,
   NoticesPage,

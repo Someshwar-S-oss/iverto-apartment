@@ -424,6 +424,36 @@ export const societyAdminApi = {
   },
 
   /**
+   * Create a new complaint from a resident.
+   */
+  createComplaint: async (
+    societyId: string,
+    data: Omit<Complaint, 'id' | 'societyId' | 'createdAt' | 'status'> & { status?: ComplaintStatus },
+  ): Promise<Complaint> => {
+    const storageKey = `iverto_complaints_${societyId}`;
+    const complaints = await societyAdminApi.getComplaints(societyId);
+    const newComplaint: Complaint = {
+      id: `cmp-${Date.now()}`,
+      societyId,
+      unitId: data.unitId,
+      unitNumber: data.unitNumber,
+      buildingName: data.buildingName,
+      residentName: data.residentName,
+      residentPhone: data.residentPhone,
+      title: data.title,
+      description: data.description,
+      category: data.category,
+      priority: data.priority,
+      status: data.status || 'OPEN',
+      adminNotes: data.adminNotes,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [newComplaint, ...complaints];
+    localStorage.setItem(storageKey, JSON.stringify(updated));
+    return newComplaint;
+  },
+
+  /**
    * Update complaint status and admin notes.
    */
   updateComplaintStatus: async (
