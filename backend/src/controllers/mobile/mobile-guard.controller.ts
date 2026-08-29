@@ -11,7 +11,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { eq, or, and } from 'drizzle-orm';
+import { eq, or, and, isNull, gt } from 'drizzle-orm';
 import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import { PasswordChangeGuard } from '../../modules/auth/guards/password-change.guard';
 import { RbacScopeGuard } from '../../modules/rbac/guards/rbac-scope.guard';
@@ -23,6 +23,7 @@ import { devices, units, buildings, unitMemberships, users } from '../../databas
 import { EntryEventsService } from '../../modules/entry-events/entry-events.service';
 import { ApprovalsService } from '../../modules/approvals/approvals.service';
 import { VisitorImagesService } from '../../modules/media/visitor-images.service';
+import { StaffService } from '../../modules/staff/staff.service';
 
 export interface CreateGuardEntryBody {
   unitId?: string;
@@ -60,6 +61,7 @@ export class MobileGuardController {
     private readonly entryEventsService: EntryEventsService,
     private readonly approvalsService: ApprovalsService,
     private readonly visitorImagesService: VisitorImagesService,
+    private readonly staffService: StaffService,
   ) {}
 
   private async getSocietyIdForGate(gateId: string): Promise<string> {
@@ -84,6 +86,7 @@ export class MobileGuardController {
     @Query('query') searchQuery?: string,
   ) {
     const societyId = await this.getSocietyIdForGate(gateId);
+    const now = new Date();
 
     const rows = await this.drizzle.db
       .select({
@@ -99,8 +102,20 @@ export class MobileGuardController {
       })
       .from(units)
       .leftJoin(buildings, eq(units.buildingId, buildings.id))
-      .leftJoin(unitMemberships, eq(units.id, unitMemberships.unitId))
-      .leftJoin(users, eq(unitMemberships.userId, users.id))
+      .leftJoin(
+        unitMemberships,
+        and(
+          eq(units.id, unitMemberships.unitId),
+          or(isNull(unitMemberships.activeTo), gt(unitMemberships.activeTo, now)),
+        ),
+      )
+      .leftJoin(
+        users,
+        and(
+          eq(unitMemberships.userId, users.id),
+          eq(users.status, 'ACTIVE'),
+        ),
+      )
       .where(eq(units.societyId, societyId));
 
     // Group by unit
@@ -214,6 +229,16 @@ export class MobileGuardController {
     @CurrentUser('sub') guardUserId: string,
   ) {
     return this.entryEventsService.markExit(entryEventId, guardUserId);
+  }
+
+  @Get('staff')
+  @RequirePermission('directory.read', ScopeType.GATE)
+  async getSocietyStaff(
+    @Param('gateId') gateId: string,
+    @Query('status') status?: 'ACTIVE' | 'INACTIVE',
+  ) {
+    const societyId = await this.getSocietyIdForGate(gateId);
+    return this.staffService.listStaffBySociety(societyId, status || 'ACTIVE');
   }
 
   @Get('pending')

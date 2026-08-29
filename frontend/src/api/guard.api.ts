@@ -100,6 +100,17 @@ export const guardApi = {
   },
 
   /**
+   * Retrieve active society staff directory for security gate search.
+   * Calls GET /api/v1/mobile/gates/:gateId/staff.
+   */
+  getStaff: async (gateId: string): Promise<any[]> => {
+    const response = await apiClient.get<any[]>(
+      `/api/v1/mobile/gates/${gateId}/staff`,
+    );
+    return response.data;
+  },
+
+  /**
    * Retrieve currently pending resident approvals initiated from this gate.
    * Calls GET /api/v1/mobile/gates/:gateId/pending.
    */

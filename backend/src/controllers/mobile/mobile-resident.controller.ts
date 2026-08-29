@@ -19,7 +19,7 @@ import { RequirePermission } from '../../modules/rbac/decorators/require-permiss
 import { CurrentUser } from '../../modules/rbac/decorators/current-user.decorator';
 import { ScopeType } from '../../modules/rbac/rbac.constants';
 import { DrizzleService } from '../../database/drizzle.service';
-import { passcodes, deliveryPermissions } from '../../database/schema';
+import { passcodes, deliveryPermissions, units } from '../../database/schema';
 import { ApprovalsService } from '../../modules/approvals/approvals.service';
 import { EntryEventsService } from '../../modules/entry-events/entry-events.service';
 import { StaffService } from '../../modules/staff/staff.service';
@@ -93,6 +93,22 @@ export class MobileResidentController {
       parseInt(page, 10) || 1,
       parseInt(limit, 10) || 20,
     );
+  }
+
+  @Get('society-staff')
+  @RequirePermission('entry.view', ScopeType.UNIT)
+  async getAvailableSocietyStaff(@Param('unitId') unitId: string) {
+    const [unit] = await this.drizzle.db
+      .select({ societyId: units.societyId })
+      .from(units)
+      .where(eq(units.id, unitId))
+      .limit(1);
+
+    if (!unit) {
+      throw new NotFoundException(`Unit ${unitId} not found`);
+    }
+
+    return this.staffService.listStaffBySociety(unit.societyId, 'ACTIVE');
   }
 
   @Get('staff')

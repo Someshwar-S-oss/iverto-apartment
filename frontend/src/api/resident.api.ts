@@ -97,6 +97,17 @@ export const residentApi = {
   },
 
   /**
+   * Get all active verified domestic staff in the unit's society for flat assignment.
+   * Calls GET /api/v1/mobile/units/:unitId/society-staff.
+   */
+  getAvailableSocietyStaff: async (unitId: string): Promise<Staff[]> => {
+    const response = await apiClient.get<Staff[]>(
+      `/api/v1/mobile/units/${unitId}/society-staff`,
+    );
+    return response.data;
+  },
+
+  /**
    * Assign a society staff member to this residential unit.
    * Calls POST /api/v1/mobile/units/:unitId/staff.
    */

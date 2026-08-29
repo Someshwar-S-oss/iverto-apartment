@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { eq, and, isNull } from 'drizzle-orm';
 import { DrizzleService } from '../../database/drizzle.service';
-import { staff, staffUnitAssignments } from '../../database/schema';
+import { staff, staffUnitAssignments, units } from '../../database/schema';
 
 export interface CreateStaffDto {
   name: string;
@@ -43,6 +43,28 @@ export class StaffService {
    * If an active assignment exists, updates the notify preference.
    */
   async assignStaffToUnit(staffId: string, unitId: string, notify: boolean = true) {
+    // 1. Verify unit exists and get its society
+    const [unit] = await this.drizzle.db
+      .select({ societyId: units.societyId })
+      .from(units)
+      .where(eq(units.id, unitId))
+      .limit(1);
+
+    if (!unit) {
+      throw new NotFoundException(`Unit ${unitId} not found`);
+    }
+
+    // 2. Verify staff member belongs to the same society
+    const [targetStaff] = await this.drizzle.db
+      .select({ id: staff.id, societyId: staff.societyId })
+      .from(staff)
+      .where(and(eq(staff.id, staffId), eq(staff.societyId, unit.societyId)))
+      .limit(1);
+
+    if (!targetStaff) {
+      throw new BadRequestException(`Staff ${staffId} does not belong to this unit's society`);
+    }
+
     const [existing] = await this.drizzle.db
       .select()
       .from(staffUnitAssignments)
