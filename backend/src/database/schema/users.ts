@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, boolean as pgBoolean, timestamp } from 'drizzle-orm/pg-core';
 import { userStatusEnum } from './enums';
 
 export const users = pgTable('users', {
@@ -8,8 +8,8 @@ export const users = pgTable('users', {
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   avatarKey: varchar('avatar_key', { length: 512 }),
-  isSuperadmin: boolean('is_superadmin').default(false).notNull(),
-  mustChangePassword: boolean('must_change_password').default(true).notNull(),
+  isSuperadmin: pgBoolean('is_superadmin').default(false).notNull(),
+  mustChangePassword: pgBoolean('must_change_password').default(true).notNull(),
   status: userStatusEnum('status').default('ACTIVE').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
