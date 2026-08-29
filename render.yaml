@@ -1,0 +1,39 @@
+services:
+  # NestJS Cloud Backend Web Service
+  - type: web
+    name: iverto-backend
+    runtime: node
+    plan: free
+    region: ohio
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false # Set in Render Dashboard with Neon pooled connection string
+      - key: DIRECT_DATABASE_URL
+        sync: false # Set in Render Dashboard with Neon direct connection string
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 30d
+      - key: M50_WS_PATH
+        value: /m50
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: iverto-redis
+          property: connectionString
+      - key: REDIS_KEY_PREFIX
+        value: "iverto:gate:"
+
+  # Redis Cache & PubSub Service
+  - type: redis
+    name: iverto-redis
+    plan: free
+    region: ohio
+    ipAllowList: [] # Only accessible internally by backend web service
