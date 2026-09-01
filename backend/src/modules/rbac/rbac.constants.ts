@@ -41,7 +41,7 @@ export const ROLE_GRANTS: Record<string, string[]> = {
     'photo.capture@GATE',
     'approval.request@GATE',
     'passcode.verify@GATE',
-    'directory.read@SOCIETY',
+    'directory.read@GATE',
     'entry.view@GATE',
   ],
   GUARD_SUPERVISOR: [
@@ -49,7 +49,7 @@ export const ROLE_GRANTS: Record<string, string[]> = {
     'photo.capture@GATE',
     'approval.request@GATE',
     'passcode.verify@GATE',
-    'directory.read@SOCIETY',
+    'directory.read@GATE',
     'entry.view@GATE',
     'guard.roster@SOCIETY',
     'entry.view@SOCIETY',

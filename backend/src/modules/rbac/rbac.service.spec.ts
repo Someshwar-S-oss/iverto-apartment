@@ -317,7 +317,7 @@ describe('RbacService', () => {
       expect(canStaff).toBe(false);
     });
 
-    it('should allow GUARD entry.create on GATE and directory.read on SOCIETY', async () => {
+    it('should allow GUARD entry.create and directory.read on GATE', async () => {
       setupUserDbMocks({
         societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
       });
@@ -334,7 +334,7 @@ describe('RbacService', () => {
       const canReadDirectory = await service.assertPermission(
         userId,
         'directory.read',
-        ScopeType.SOCIETY,
+        ScopeType.GATE,
         'soc-1',
       );
       expect(canReadDirectory).toBe(true);
