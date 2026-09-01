@@ -267,7 +267,7 @@ export const DevicesPage: React.FC = () => {
                       <td>
                         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
                           <DoorOpen className="w-3.5 h-3.5 text-[#cd0447]" />
-                          <span>{device.gateId ? `Gate ${device.gateId.slice(0, 8)}` : 'Main Entrance Boom Barrier'}</span>
+                          <span>{device.gateName || 'No gate assigned'}</span>
                         </div>
                       </td>
                       <td className="text-xs text-gray-600">

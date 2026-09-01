@@ -2,18 +2,29 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { SharedHttpIoAdapter } from './common/adapters/shared-http-io.adapter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
+  const configService = app.get(ConfigService);
 
-  // Enable CORS
+  // Baseline security headers (HSTS, X-Content-Type-Options, disabled X-Powered-By, etc).
+  // CSP is disabled because it would otherwise block Swagger UI's inline bootstrap
+  // script at /api/docs; the other protections still apply.
+  app.use(helmet({ contentSecurityPolicy: false }));
+
+  // Enable CORS. `credentials: true` is intentionally never combined with a wildcard
+  // origin — browsers reject that pairing outright, and this API is Bearer-token
+  // authenticated (not cookie-based), so credentialed CORS isn't needed even when a
+  // specific origin allowlist is configured via CORS_ORIGINS.
+  const corsOrigins = configService.get<string[] | string>('cors.origins') || '*';
   app.enableCors({
-    origin: '*',
+    origin: corsOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true,
+    credentials: false,
   });
 
   // Global validation pipe
@@ -64,7 +75,6 @@ async function bootstrap() {
     },
   });
 
-  const configService = app.get(ConfigService);
   const port = configService.get<number>('port') || 8031;
 
   await app.listen(port);

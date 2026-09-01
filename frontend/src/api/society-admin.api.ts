@@ -3,6 +3,7 @@ import type {
   Building,
   Device,
   EntryEvent,
+  Gate,
   PaginatedResult,
   SocietyDashboardStats,
   Staff,
@@ -23,6 +24,19 @@ export interface CreateSocietyUserPayload {
   role: UnitRole | SocietyRole | 'OWNER' | 'TENANT' | 'FAMILY' | 'GUARD' | 'GUARD_SUPERVISOR' | 'SOCIETY_ADMIN';
   unitId?: string;
   isPrimary?: boolean;
+  // Only meaningful for GUARD/GUARD_SUPERVISOR. Omitted/null = unrestricted (every gate
+  // in the society) — the default, and the only option for GUARD_SUPERVISOR in practice.
+  gateId?: string | null;
+}
+
+export interface CreateGatePayload {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateGatePayload {
+  name?: string;
+  description?: string;
 }
 
 export interface CreateSocietyUserResponse {
@@ -87,6 +101,17 @@ export const societyAdminApi = {
   getUnits: async (societyId: string): Promise<Unit[]> => {
     const response = await apiClient.get<Unit[]>(
       `/api/v1/web/societies/${societyId}/units`,
+    );
+    return response.data;
+  },
+
+  /**
+   * List all buildings/towers in the society.
+   * Calls GET /api/v1/web/societies/:societyId/buildings.
+   */
+  getBuildings: async (societyId: string): Promise<Building[]> => {
+    const response = await apiClient.get<Building[]>(
+      `/api/v1/web/societies/${societyId}/buildings`,
     );
     return response.data;
   },
@@ -238,234 +263,130 @@ export const societyAdminApi = {
   },
 
   /**
-   * Get community notices/announcements for a society.
+   * List gates (physical entrances) defined for this society.
+   * Calls GET /api/v1/web/societies/:societyId/gates.
    */
-  getNotices: async (societyId: string): Promise<Notice[]> => {
-    const storageKey = `iverto_notices_${societyId}`;
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        // fallback
-      }
-    }
-    const defaultNotices: Notice[] = [
-      {
-        id: 'not-1',
-        societyId,
-        title: 'Elevator Maintenance in Tower B',
-        body: 'Scheduled preventative maintenance for Passenger Lift 2 in Tower B on Saturday from 10:00 AM to 2:00 PM. Please use Lift 1 during this window.',
-        category: 'MAINTENANCE',
-        isPinned: true,
-        authorName: 'Society Management',
-        authorRole: 'SOCIETY_ADMIN',
-        createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-      },
-      {
-        id: 'not-2',
-        societyId,
-        title: 'New M50 Facial Recognition Protocol at Main Gate',
-        body: 'All domestic helpers, cooks, and recurring staff members must have their biometric profile paired at the security desk for automatic boom barrier opening.',
-        category: 'SECURITY',
-        isPinned: true,
-        authorName: 'Chief Security Officer',
-        authorRole: 'GUARD_SUPERVISOR',
-        createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-      },
-      {
-        id: 'not-3',
-        societyId,
-        title: 'Annual General Body Meeting (AGM) - Save the Date',
-        body: 'The Annual General Body Meeting for the financial year will be hosted at the Community Clubhouse on the second Sunday of next month at 6:00 PM.',
-        category: 'EVENT',
-        isPinned: false,
-        authorName: 'Management Committee',
-        authorRole: 'SOCIETY_ADMIN',
-        createdAt: new Date(Date.now() - 3600000 * 72).toISOString(),
-      },
-      {
-        id: 'not-4',
-        societyId,
-        title: 'Water Tank Cleaning Notification',
-        body: 'Overhead water tank cleaning will take place on Tuesday between 1:00 PM and 5:00 PM. Water supply may experience low pressure.',
-        category: 'MAINTENANCE',
-        isPinned: false,
-        authorName: 'Facility Manager',
-        authorRole: 'SOCIETY_ADMIN',
-        createdAt: new Date(Date.now() - 3600000 * 120).toISOString(),
-      },
-    ];
-    localStorage.setItem(storageKey, JSON.stringify(defaultNotices));
-    return defaultNotices;
+  getGates: async (societyId: string): Promise<Gate[]> => {
+    const response = await apiClient.get<Gate[]>(
+      `/api/v1/web/societies/${societyId}/gates`,
+    );
+    return response.data;
   },
 
   /**
-   * Create a new notice/announcement.
+   * Create a new gate.
+   * Calls POST /api/v1/web/societies/:societyId/gates.
+   */
+  createGate: async (societyId: string, data: CreateGatePayload): Promise<Gate> => {
+    const response = await apiClient.post<Gate>(
+      `/api/v1/web/societies/${societyId}/gates`,
+      data,
+    );
+    return response.data;
+  },
+
+  /**
+   * Rename or update a gate.
+   * Calls PATCH /api/v1/web/societies/:societyId/gates/:gateId.
+   */
+  updateGate: async (societyId: string, gateId: string, data: UpdateGatePayload): Promise<Gate> => {
+    const response = await apiClient.patch<Gate>(
+      `/api/v1/web/societies/${societyId}/gates/${gateId}`,
+      data,
+    );
+    return response.data;
+  },
+
+  /**
+   * Delete a gate. Guards assigned to it and devices pointed at it fall back to
+   * unrestricted/unassigned rather than being locked out or orphaned.
+   * Calls DELETE /api/v1/web/societies/:societyId/gates/:gateId.
+   */
+  deleteGate: async (societyId: string, gateId: string): Promise<Gate> => {
+    const response = await apiClient.delete<Gate>(
+      `/api/v1/web/societies/${societyId}/gates/${gateId}`,
+    );
+    return response.data;
+  },
+
+  /**
+   * Assign (or, with gateId: null, unassign back to unrestricted) a guard/supervisor to
+   * one specific gate.
+   * Calls PATCH /api/v1/web/societies/:societyId/guards/:userId/gate.
+   */
+  assignGuardGate: async (
+    societyId: string,
+    userId: string,
+    gateId: string | null,
+  ): Promise<unknown> => {
+    const response = await apiClient.patch(
+      `/api/v1/web/societies/${societyId}/guards/${userId}/gate`,
+      { gateId },
+    );
+    return response.data;
+  },
+
+  /**
+   * Get community notices/announcements for a society.
+   * Calls GET /api/v1/web/societies/:societyId/notices.
+   */
+  getNotices: async (societyId: string): Promise<Notice[]> => {
+    const response = await apiClient.get<Notice[]>(
+      `/api/v1/web/societies/${societyId}/notices`,
+    );
+    return response.data;
+  },
+
+  /**
+   * Create a new notice/announcement. Author identity is derived server-side from the
+   * authenticated caller, so only title/body/category/isPinned are ever sent.
+   * Calls POST /api/v1/web/societies/:societyId/notices.
    */
   createNotice: async (
     societyId: string,
-    data: Omit<Notice, 'id' | 'societyId' | 'createdAt'>,
+    data: Pick<Notice, 'title' | 'body' | 'category' | 'isPinned'>,
   ): Promise<Notice> => {
-    const storageKey = `iverto_notices_${societyId}`;
-    const notices = await societyAdminApi.getNotices(societyId);
-    const newNotice: Notice = {
-      id: `not-${Date.now()}`,
-      societyId,
-      title: data.title,
-      body: data.body,
-      category: data.category || 'GENERAL',
-      isPinned: data.isPinned ?? false,
-      authorName: data.authorName || 'Society Admin',
-      authorRole: data.authorRole || 'SOCIETY_ADMIN',
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newNotice, ...notices];
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    return newNotice;
+    const response = await apiClient.post<Notice>(
+      `/api/v1/web/societies/${societyId}/notices`,
+      data,
+    );
+    return response.data;
   },
 
   /**
    * Delete a notice.
+   * Calls DELETE /api/v1/web/societies/:societyId/notices/:noticeId.
    */
   deleteNotice: async (societyId: string, noticeId: string): Promise<boolean> => {
-    const storageKey = `iverto_notices_${societyId}`;
-    const notices = await societyAdminApi.getNotices(societyId);
-    const updated = notices.filter((n) => n.id !== noticeId);
-    localStorage.setItem(storageKey, JSON.stringify(updated));
+    await apiClient.delete(`/api/v1/web/societies/${societyId}/notices/${noticeId}`);
     return true;
   },
 
   /**
    * Toggle pinned state of a notice.
+   * Calls PATCH /api/v1/web/societies/:societyId/notices/:noticeId/pin.
    */
   togglePinNotice: async (societyId: string, noticeId: string): Promise<Notice | null> => {
-    const storageKey = `iverto_notices_${societyId}`;
-    const notices = await societyAdminApi.getNotices(societyId);
-    let target: Notice | null = null;
-    const updated = notices.map((n) => {
-      if (n.id === noticeId) {
-        target = { ...n, isPinned: !n.isPinned, updatedAt: new Date().toISOString() };
-        return target;
-      }
-      return n;
-    });
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    return target;
+    const response = await apiClient.patch<Notice>(
+      `/api/v1/web/societies/${societyId}/notices/${noticeId}/pin`,
+    );
+    return response.data;
   },
 
   /**
-   * Get resident complaints.
+   * Get every complaint raised across the society (society-admin helpdesk view).
+   * Calls GET /api/v1/web/societies/:societyId/complaints.
    */
   getComplaints: async (societyId: string): Promise<Complaint[]> => {
-    const storageKey = `iverto_complaints_${societyId}`;
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        // fallback
-      }
-    }
-    const defaultComplaints: Complaint[] = [
-      {
-        id: 'cmp-1',
-        societyId,
-        unitNumber: 'A-402',
-        buildingName: 'Tower A',
-        residentName: 'Rajesh Sharma',
-        residentPhone: '+91 98765 43210',
-        title: 'Water seepage near main bathroom wall',
-        description: 'Consistent dampness and water staining observed on the common wall of bathroom in A-402 since last monsoon shower.',
-        category: 'PLUMBING',
-        priority: 'HIGH',
-        status: 'OPEN',
-        createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-      },
-      {
-        id: 'cmp-2',
-        societyId,
-        unitNumber: 'B-1104',
-        buildingName: 'Tower B',
-        residentName: 'Priya Iyer',
-        residentPhone: '+91 98112 34567',
-        title: 'Corridor emergency light flickering at night',
-        description: '11th floor east-wing corridor light has loose wiring and flickers continuously between 8 PM and midnight.',
-        category: 'ELECTRICAL',
-        priority: 'MEDIUM',
-        status: 'IN_PROGRESS',
-        adminNotes: 'Electrician dispatched; replacement LED fixture scheduled for tomorrow morning.',
-        createdAt: new Date(Date.now() - 3600000 * 28).toISOString(),
-      },
-      {
-        id: 'cmp-3',
-        societyId,
-        unitNumber: 'C-203',
-        buildingName: 'Tower C',
-        residentName: 'Amit Patel',
-        residentPhone: '+91 97654 32109',
-        title: 'Unauthorized vehicle parked in allocated slot #44',
-        description: 'Black SUV MH-02-CD-5678 was parked in my reserved basement slot #44 without prior intimation.',
-        category: 'PARKING',
-        priority: 'HIGH',
-        status: 'RESOLVED',
-        adminNotes: 'Security identified visitor car and had it relocated to visitor parking bay #8.',
-        createdAt: new Date(Date.now() - 3600000 * 50).toISOString(),
-        resolvedAt: new Date(Date.now() - 3600000 * 42).toISOString(),
-      },
-      {
-        id: 'cmp-4',
-        societyId,
-        unitNumber: 'A-801',
-        buildingName: 'Tower A',
-        residentName: 'Sunita Verma',
-        residentPhone: '+91 99201 12233',
-        title: 'Unattended pet barking on balcony during work hours',
-        description: 'Repeated excessive pet noise from neighboring flat between 2 PM and 5 PM on weekdays.',
-        category: 'NOISE',
-        priority: 'LOW',
-        status: 'CLOSED',
-        adminNotes: 'Resident contacted and advised on pet courtesy hours.',
-        createdAt: new Date(Date.now() - 3600000 * 120).toISOString(),
-        resolvedAt: new Date(Date.now() - 3600000 * 96).toISOString(),
-      },
-    ];
-    localStorage.setItem(storageKey, JSON.stringify(defaultComplaints));
-    return defaultComplaints;
-  },
-
-  /**
-   * Create a new complaint from a resident.
-   */
-  createComplaint: async (
-    societyId: string,
-    data: Omit<Complaint, 'id' | 'societyId' | 'createdAt' | 'status'> & { status?: ComplaintStatus },
-  ): Promise<Complaint> => {
-    const storageKey = `iverto_complaints_${societyId}`;
-    const complaints = await societyAdminApi.getComplaints(societyId);
-    const newComplaint: Complaint = {
-      id: `cmp-${Date.now()}`,
-      societyId,
-      unitId: data.unitId,
-      unitNumber: data.unitNumber,
-      buildingName: data.buildingName,
-      residentName: data.residentName,
-      residentPhone: data.residentPhone,
-      title: data.title,
-      description: data.description,
-      category: data.category,
-      priority: data.priority,
-      status: data.status || 'OPEN',
-      adminNotes: data.adminNotes,
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newComplaint, ...complaints];
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    return newComplaint;
+    const response = await apiClient.get<Complaint[]>(
+      `/api/v1/web/societies/${societyId}/complaints`,
+    );
+    return response.data;
   },
 
   /**
    * Update complaint status and admin notes.
+   * Calls PATCH /api/v1/web/societies/:societyId/complaints/:complaintId.
    */
   updateComplaintStatus: async (
     societyId: string,
@@ -473,24 +394,54 @@ export const societyAdminApi = {
     status: ComplaintStatus,
     adminNotes?: string,
   ): Promise<Complaint | null> => {
-    const storageKey = `iverto_complaints_${societyId}`;
-    const complaints = await societyAdminApi.getComplaints(societyId);
-    let target: Complaint | null = null;
-    const updated = complaints.map((c) => {
-      if (c.id === complaintId) {
-        target = {
-          ...c,
-          status,
-          adminNotes: adminNotes !== undefined ? adminNotes : c.adminNotes,
-          resolvedAt: status === 'RESOLVED' || status === 'CLOSED' ? new Date().toISOString() : c.resolvedAt,
-          updatedAt: new Date().toISOString(),
-        };
-        return target;
-      }
-      return c;
-    });
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    return target;
+    const response = await apiClient.patch<Complaint>(
+      `/api/v1/web/societies/${societyId}/complaints/${complaintId}`,
+      { status, adminNotes },
+    );
+    return response.data;
+  },
+
+  /**
+   * List staff currently assigned to a specific unit.
+   * Calls GET /api/v1/web/societies/:societyId/units/:unitId/staff.
+   */
+  getUnitStaff: async (societyId: string, unitId: string): Promise<Staff[]> => {
+    const response = await apiClient.get<Staff[]>(
+      `/api/v1/web/societies/${societyId}/units/${unitId}/staff`,
+    );
+    return response.data;
+  },
+
+  /**
+   * Assign a staff member to a unit. Site-admin only — residents cannot self-assign.
+   * Calls POST /api/v1/web/societies/:societyId/staff/:staffId/units/:unitId.
+   */
+  assignStaffToUnit: async (
+    societyId: string,
+    staffId: string,
+    unitId: string,
+    notify: boolean = true,
+  ): Promise<unknown> => {
+    const response = await apiClient.post(
+      `/api/v1/web/societies/${societyId}/staff/${staffId}/units/${unitId}`,
+      { notify },
+    );
+    return response.data;
+  },
+
+  /**
+   * Unassign a staff member from a unit. Site-admin only.
+   * Calls DELETE /api/v1/web/societies/:societyId/staff/:staffId/units/:unitId.
+   */
+  unassignStaffFromUnit: async (
+    societyId: string,
+    staffId: string,
+    unitId: string,
+  ): Promise<unknown> => {
+    const response = await apiClient.delete(
+      `/api/v1/web/societies/${societyId}/staff/${staffId}/units/${unitId}`,
+    );
+    return response.data;
   },
 };
 

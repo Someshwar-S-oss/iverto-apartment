@@ -66,9 +66,26 @@ describe('StaffService', () => {
     it('should create a new assignment if none exists', async () => {
       const staffId = 'staff-1';
       const unitId = 'unit-101';
+      const societyId = 'soc-1';
 
-      // Check existing -> returns empty
-      mockDb.select.mockReturnValue({
+      // 1. Unit lookup -> resolves the unit's society
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ societyId }]),
+          }),
+        }),
+      });
+      // 2. Staff lookup -> staff belongs to the same society
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ id: staffId, societyId }]),
+          }),
+        }),
+      });
+      // 3. Existing assignment lookup -> none yet
+      mockDb.select.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
             limit: jest.fn().mockResolvedValue([]),
@@ -98,6 +115,7 @@ describe('StaffService', () => {
     it('should update notify if active assignment exists with different notify value', async () => {
       const staffId = 'staff-1';
       const unitId = 'unit-101';
+      const societyId = 'soc-1';
 
       const existingAssignment = {
         id: 'assign-1',
@@ -108,7 +126,21 @@ describe('StaffService', () => {
         activeTo: null,
       };
 
-      mockDb.select.mockReturnValue({
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ societyId }]),
+          }),
+        }),
+      });
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ id: staffId, societyId }]),
+          }),
+        }),
+      });
+      mockDb.select.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
             limit: jest.fn().mockResolvedValue([existingAssignment]),
@@ -137,6 +169,7 @@ describe('StaffService', () => {
     it('should return existing assignment if active assignment already has identical notify value', async () => {
       const staffId = 'staff-1';
       const unitId = 'unit-101';
+      const societyId = 'soc-1';
 
       const existingAssignment = {
         id: 'assign-1',
@@ -147,7 +180,21 @@ describe('StaffService', () => {
         activeTo: null,
       };
 
-      mockDb.select.mockReturnValue({
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ societyId }]),
+          }),
+        }),
+      });
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ id: staffId, societyId }]),
+          }),
+        }),
+      });
+      mockDb.select.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
             limit: jest.fn().mockResolvedValue([existingAssignment]),

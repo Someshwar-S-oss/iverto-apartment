@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException, ForbiddenException, BadRequestException, ExecutionContext } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from '../src/modules/auth/auth.service';
@@ -74,6 +75,11 @@ describe('Auth, Temp Passwords, Password Change Gate & Tenant RLS E2E Suite', ()
             },
           }),
         }),
+        // login/changePassword now also issue a refresh token row — not the focus of
+        // this suite, so a bare no-op insert is enough to keep them running.
+        insert: () => ({
+          values: async () => [{ id: 'rt-mock' }],
+        }),
       },
       withTenantContext: async (ctx: any, cb: any) => cb(mockDrizzle.db, ctx),
     };
@@ -94,6 +100,10 @@ describe('Auth, Temp Passwords, Password Change Gate & Tenant RLS E2E Suite', ()
         {
           provide: JwtService,
           useValue: jwtService,
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: () => undefined },
         },
       ],
     }).compile();

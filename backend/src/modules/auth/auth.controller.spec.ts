@@ -9,6 +9,8 @@ describe('AuthController', () => {
   const mockAuthService = {
     login: jest.fn(),
     changePassword: jest.fn(),
+    refreshAccessToken: jest.fn(),
+    revokeRefreshToken: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -75,6 +77,36 @@ describe('AuthController', () => {
 
       expect(result).toEqual(expectedResult);
       expect(mockAuthService.changePassword).toHaveBeenCalledWith('u-1', 'NewSecurePassword123!');
+    });
+  });
+
+  describe('refresh', () => {
+    it('should call authService.refreshAccessToken with the provided refresh token', async () => {
+      const dto = { refreshToken: 'raw-refresh-token' };
+      const expectedResult = {
+        accessToken: 'new_jwt_token',
+        refreshToken: 'new-raw-refresh-token',
+        user: { id: 'u-1' },
+      };
+
+      mockAuthService.refreshAccessToken.mockResolvedValue(expectedResult);
+
+      const result = await controller.refresh(dto as any);
+
+      expect(result).toEqual(expectedResult);
+      expect(mockAuthService.refreshAccessToken).toHaveBeenCalledWith('raw-refresh-token');
+    });
+  });
+
+  describe('logout', () => {
+    it('should revoke the provided refresh token and return success', async () => {
+      const dto = { refreshToken: 'raw-refresh-token' };
+      mockAuthService.revokeRefreshToken.mockResolvedValue(undefined);
+
+      const result = await controller.logout(dto as any);
+
+      expect(result).toEqual({ success: true });
+      expect(mockAuthService.revokeRefreshToken).toHaveBeenCalledWith('raw-refresh-token');
     });
   });
 });

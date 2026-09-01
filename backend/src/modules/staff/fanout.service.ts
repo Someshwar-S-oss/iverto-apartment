@@ -63,12 +63,16 @@ export class FanoutService {
       const unitId = assignment.unitId;
 
       // 1. Dispatch Socket.IO real-time event to unit room
+      // unitIds carries the room this event was emitted into — a client subscribed to
+      // several rooms at once (resident + gate + society) otherwise has no way to tell
+      // which one changed and has to refetch everything on every arrival/departure.
       this.realtime.emitToUnit(unitId, 'staff.status', {
         staffId: staffMember.id,
         name: staffMember.name,
         type: staffMember.staffType,
         direction,
         occurredAt: occurredIso,
+        unitIds: [unitId],
         ...(gateId ? { gateId } : {}),
       });
 

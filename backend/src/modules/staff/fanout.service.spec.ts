@@ -100,6 +100,7 @@ describe('FanoutService', () => {
         type: 'MAID',
         direction: 'IN',
         occurredAt: '2026-08-29T10:00:00.000Z',
+        unitIds: ['unit-101'],
         gateId: 'gate-main',
       });
       expect(mockRealtime.emitToUnit).toHaveBeenCalledWith('unit-102', 'staff.status', expect.any(Object));
@@ -160,6 +161,7 @@ describe('FanoutService', () => {
         type: 'DRIVER',
         direction: 'OUT',
         occurredAt: '2026-08-29T18:30:00.000Z',
+        unitIds: ['unit-301'],
       });
 
       expect(mockNotifications.sendNotificationToUnit).toHaveBeenCalledWith(

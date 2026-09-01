@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import {
   EntryEventsService,
   isWithinTimeWindow,
@@ -9,6 +9,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { VisitorImagesService } from '../media/visitor-images.service';
+import { RbacService } from '../rbac/rbac.service';
 
 describe('EntryEventsService', () => {
   let service: EntryEventsService;
@@ -17,6 +18,7 @@ describe('EntryEventsService', () => {
   let mockNotifications: any;
   let mockApprovals: any;
   let mockVisitorImages: any;
+  let mockRbac: any;
 
   beforeEach(async () => {
     mockDb = {
@@ -40,6 +42,11 @@ describe('EntryEventsService', () => {
 
     mockVisitorImages = {
       saveImage: jest.fn().mockResolvedValue({ id: 'img-1' }),
+      getImage: jest.fn(),
+    };
+
+    mockRbac = {
+      assertPermission: jest.fn().mockResolvedValue(false),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -47,7 +54,7 @@ describe('EntryEventsService', () => {
         EntryEventsService,
         {
           provide: DrizzleService,
-          useValue: { db: mockDb },
+          useValue: { db: mockDb, withSystemContext: jest.fn((cb: any) => cb()) },
         },
         {
           provide: RealtimeGateway,
@@ -64,6 +71,10 @@ describe('EntryEventsService', () => {
         {
           provide: VisitorImagesService,
           useValue: mockVisitorImages,
+        },
+        {
+          provide: RbacService,
+          useValue: mockRbac,
         },
       ],
     }).compile();
@@ -161,7 +172,7 @@ describe('EntryEventsService', () => {
         'entry-v1',
       );
       expect(result.autoApproved).toBe(false);
-      expect(result.entryEvent).toEqual(mockEntry);
+      expect(result.entryEvent).toEqual({ ...mockEntry, hasPhoto: true });
     });
 
     it('should handle DELIVERY entry with LEAVE_AT_GATE within window: auto-approves and notifies', async () => {
@@ -398,8 +409,10 @@ describe('EntryEventsService', () => {
 
       mockDb.select.mockReturnValue({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([mockPasscode]),
+          innerJoin: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ passcode: mockPasscode }]),
+            }),
           }),
         }),
       });
@@ -433,21 +446,30 @@ describe('EntryEventsService', () => {
       );
     });
 
-    it('should throw UnauthorizedException if passcode not found', async () => {
+    // A verdict is not an authentication failure — see the doc comment on verifyPasscode.
+    // All four rejection cases resolve with {verified: false, reason, message} at 200,
+    // never throw/401, so a mistyped code can't sign the guard out mid-shift.
+
+    it('should resolve {verified: false, reason: NOT_FOUND} if passcode not found', async () => {
       mockDb.select.mockReturnValue({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([]),
+          innerJoin: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([]),
+            }),
           }),
         }),
       });
 
-      await expect(
-        service.verifyPasscode('soc-1', 'gate-1', 'guard-1', 'invalid-code'),
-      ).rejects.toThrow(UnauthorizedException);
+      const result = await service.verifyPasscode('soc-1', 'gate-1', 'guard-1', 'invalid-code');
+      expect(result).toEqual({
+        verified: false,
+        reason: 'NOT_FOUND',
+        message: 'Invalid passcode or QR token',
+      });
     });
 
-    it('should throw UnauthorizedException if passcode is revoked', async () => {
+    it('should resolve {verified: false, reason: REVOKED} if passcode is revoked', async () => {
       const mockPasscode = {
         id: 'passcode-revoked',
         unitId: 'unit-101',
@@ -456,18 +478,23 @@ describe('EntryEventsService', () => {
 
       mockDb.select.mockReturnValue({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([mockPasscode]),
+          innerJoin: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ passcode: mockPasscode }]),
+            }),
           }),
         }),
       });
 
-      await expect(
-        service.verifyPasscode('soc-1', 'gate-1', 'guard-1', '123456'),
-      ).rejects.toThrow('Passcode has been revoked');
+      const result = await service.verifyPasscode('soc-1', 'gate-1', 'guard-1', '123456');
+      expect(result).toEqual({
+        verified: false,
+        reason: 'REVOKED',
+        message: 'Passcode has been revoked',
+      });
     });
 
-    it('should throw UnauthorizedException if passcode usesCount >= maxUses', async () => {
+    it('should resolve {verified: false, reason: USED_UP} if passcode usesCount >= maxUses', async () => {
       const mockPasscode = {
         id: 'passcode-used',
         unitId: 'unit-101',
@@ -478,18 +505,23 @@ describe('EntryEventsService', () => {
 
       mockDb.select.mockReturnValue({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([mockPasscode]),
+          innerJoin: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ passcode: mockPasscode }]),
+            }),
           }),
         }),
       });
 
-      await expect(
-        service.verifyPasscode('soc-1', 'gate-1', 'guard-1', '123456'),
-      ).rejects.toThrow('Passcode usage limit exceeded');
+      const result = await service.verifyPasscode('soc-1', 'gate-1', 'guard-1', '123456');
+      expect(result).toEqual({
+        verified: false,
+        reason: 'USED_UP',
+        message: 'Passcode usage limit exceeded',
+      });
     });
 
-    it('should throw UnauthorizedException if passcode is outside validity window', async () => {
+    it('should resolve {verified: false, reason: EXPIRED} if passcode is outside validity window', async () => {
       const mockPasscode = {
         id: 'passcode-expired',
         unitId: 'unit-101',
@@ -502,15 +534,41 @@ describe('EntryEventsService', () => {
 
       mockDb.select.mockReturnValue({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([mockPasscode]),
+          innerJoin: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ passcode: mockPasscode }]),
+            }),
           }),
         }),
       });
 
-      await expect(
-        service.verifyPasscode('soc-1', 'gate-1', 'guard-1', '123456'),
-      ).rejects.toThrow('Passcode is expired or not yet valid');
+      const result = await service.verifyPasscode('soc-1', 'gate-1', 'guard-1', '123456');
+      expect(result).toEqual({
+        verified: false,
+        reason: 'EXPIRED',
+        message: 'Passcode is expired or not yet valid',
+      });
+    });
+
+    it('should reject a passcode that belongs to a different society (cross-tenant guard)', async () => {
+      // The join to `units` filters on the calling gate's societyId, so a passcode
+      // issued in a different society never surfaces here even if the code matches.
+      mockDb.select.mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          innerJoin: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+      });
+
+      const result = await service.verifyPasscode('soc-OTHER', 'gate-1', 'guard-1', '123456');
+      expect(result).toEqual({
+        verified: false,
+        reason: 'NOT_FOUND',
+        message: 'Invalid passcode or QR token',
+      });
     });
   });
 
@@ -548,9 +606,9 @@ describe('EntryEventsService', () => {
         }),
       });
 
-      const result = await service.markExit('entry-in-1', 'guard-1');
+      const result = await service.markExit('entry-in-1', 'soc-1', 'guard-1');
 
-      expect(result).toEqual(exitEntry);
+      expect(result).toEqual({ ...exitEntry, hasPhoto: false });
       expect(mockRealtime.emitToUnit).toHaveBeenCalledWith(
         'unit-101',
         'entry.exit',
@@ -572,34 +630,62 @@ describe('EntryEventsService', () => {
         }),
       });
 
-      await expect(service.markExit('non-existent')).rejects.toThrow(
+      await expect(service.markExit('non-existent', 'soc-1')).rejects.toThrow(
         NotFoundException,
       );
     });
+
+    it('should throw NotFoundException when the entry event belongs to a different society', async () => {
+      const originalEntry = {
+        id: 'entry-in-1',
+        societyId: 'soc-1',
+        gateId: 'gate-1',
+        unitId: 'unit-101',
+        subjectType: 'VISITOR',
+        visitorName: 'Visitor Bob',
+      };
+
+      mockDb.select.mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([originalEntry]),
+          }),
+        }),
+      });
+
+      // A guard authorized at a gate in 'soc-OTHER' must not be able to close out an
+      // entry event that actually belongs to 'soc-1'.
+      await expect(
+        service.markExit('entry-in-1', 'soc-OTHER', 'guard-1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
   });
+
+  // Both list queries below now leftJoin visitor_images for hasPhoto — the items query
+  // chains through leftJoin, the plain count query doesn't, so `from()` returns an
+  // object offering both and each call site uses only the one it actually needs.
+  const mockListQuery = (mockItems: any[]) => {
+    mockDb.select.mockImplementation(() => ({
+      from: jest.fn().mockReturnValue({
+        leftJoin: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            orderBy: jest.fn().mockReturnValue({
+              limit: jest.fn().mockReturnValue({
+                offset: jest.fn().mockResolvedValue(mockItems),
+              }),
+            }),
+          }),
+        }),
+        where: jest.fn().mockResolvedValue([{ count: 1 }]),
+      }),
+    }));
+  };
 
   describe('listUnitEntryEvents & listSocietyEntryEvents', () => {
     it('should return paginated unit entry events', async () => {
-      const mockItems = [{ id: 'entry-1', unitId: 'unit-101' }];
-      let queryCount = 0;
-
-      mockDb.select.mockImplementation(() => ({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockImplementation(() => {
-            queryCount++;
-            if (queryCount === 1) {
-              return {
-                orderBy: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockReturnValue({
-                    offset: jest.fn().mockResolvedValue(mockItems),
-                  }),
-                }),
-              };
-            }
-            return Promise.resolve([{ count: 1 }]);
-          }),
-        }),
-      }));
+      const mockItems = [{ id: 'entry-1', unitId: 'unit-101', hasPhoto: false }];
+      mockListQuery(mockItems);
 
       const result = await service.listUnitEntryEvents('unit-101', 1, 20);
 
@@ -610,26 +696,8 @@ describe('EntryEventsService', () => {
     });
 
     it('should return paginated society entry events', async () => {
-      const mockItems = [{ id: 'entry-1', societyId: 'soc-1' }];
-      let queryCount = 0;
-
-      mockDb.select.mockImplementation(() => ({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockImplementation(() => {
-            queryCount++;
-            if (queryCount === 1) {
-              return {
-                orderBy: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockReturnValue({
-                    offset: jest.fn().mockResolvedValue(mockItems),
-                  }),
-                }),
-              };
-            }
-            return Promise.resolve([{ count: 1 }]);
-          }),
-        }),
-      }));
+      const mockItems = [{ id: 'entry-1', societyId: 'soc-1', hasPhoto: true }];
+      mockListQuery(mockItems);
 
       const result = await service.listSocietyEntryEvents('soc-1', 1, 50);
 
@@ -637,6 +705,96 @@ describe('EntryEventsService', () => {
       expect(result.total).toBe(1);
       expect(result.page).toBe(1);
       expect(result.limit).toBe(50);
+    });
+  });
+
+  describe('listGateEntryEvents', () => {
+    it('should return paginated gate entry events', async () => {
+      const mockItems = [{ id: 'entry-1', gateId: 'gate-1', hasPhoto: false }];
+      mockListQuery(mockItems);
+
+      const result = await service.listGateEntryEvents('gate-1', 1, 20);
+
+      expect(result.items).toEqual(mockItems);
+      expect(result.total).toBe(1);
+      expect(result.page).toBe(1);
+      expect(result.limit).toBe(20);
+    });
+
+    it('should apply the open-only filter without throwing when open=true', async () => {
+      const mockItems = [{ id: 'entry-1', gateId: 'gate-1', direction: 'IN', hasPhoto: false }];
+      mockListQuery(mockItems);
+
+      const result = await service.listGateEntryEvents('gate-1', 1, 20, true);
+
+      expect(result.items).toEqual(mockItems);
+    });
+  });
+
+  describe('getVisitorPhotoForUser', () => {
+    const mockEntryRow = (overrides: Partial<{ unitId: string | null; societyId: string; gateId: string | null; guardUserId: string | null }> = {}) => ({
+      unitId: 'unit-1',
+      societyId: 'soc-1',
+      gateId: 'gate-1',
+      guardUserId: 'guard-9',
+      ...overrides,
+    });
+
+    const mockSelectEntry = (row: any) => {
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue(row ? [row] : []),
+          }),
+        }),
+      });
+    };
+
+    it('should throw NotFoundException when the entry event does not exist', async () => {
+      mockSelectEntry(undefined);
+
+      await expect(
+        service.getVisitorPhotoForUser('missing-evt', { sub: 'user-1' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should allow the guard who logged the entry to fetch the photo', async () => {
+      mockSelectEntry(mockEntryRow());
+
+      await service.getVisitorPhotoForUser('evt-1', { sub: 'guard-9' });
+
+      expect(mockVisitorImages.getImage).toHaveBeenCalledWith('evt-1');
+    });
+
+    it('should allow a resident with entry.view@UNIT on the entry unit', async () => {
+      mockSelectEntry(mockEntryRow());
+      mockRbac.assertPermission.mockImplementation(
+        async (_u: string, _a: string, scope: string, id: string) => scope === 'UNIT' && id === 'unit-1',
+      );
+
+      await service.getVisitorPhotoForUser('evt-1', { sub: 'resident-1' });
+
+      expect(mockVisitorImages.getImage).toHaveBeenCalledWith('evt-1');
+    });
+
+    it('should allow a superadmin regardless of grants', async () => {
+      mockSelectEntry(mockEntryRow());
+
+      await service.getVisitorPhotoForUser('evt-1', { sub: 'root', isSuperadmin: true });
+
+      expect(mockVisitorImages.getImage).toHaveBeenCalledWith('evt-1');
+      expect(mockRbac.assertPermission).not.toHaveBeenCalled();
+    });
+
+    it('should reject an unrelated user with no grant on the unit, gate, or society', async () => {
+      mockSelectEntry(mockEntryRow());
+      mockRbac.assertPermission.mockResolvedValue(false);
+
+      await expect(
+        service.getVisitorPhotoForUser('evt-1', { sub: 'stranger-1' }),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(mockVisitorImages.getImage).not.toHaveBeenCalled();
     });
   });
 });

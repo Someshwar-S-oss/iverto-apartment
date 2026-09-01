@@ -16,6 +16,7 @@ import {
   Activity,
   Shield,
   ShieldCheck,
+  DoorOpen,
   ChevronLeft,
   ChevronRight,
   Layers,
@@ -139,6 +140,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               label: 'Devices & Bridges',
               path: '/admin/devices',
               icon: Cpu,
+            },
+            {
+              label: 'Gates',
+              path: '/admin/gates',
+              icon: DoorOpen,
             },
             {
               label: 'Notices',

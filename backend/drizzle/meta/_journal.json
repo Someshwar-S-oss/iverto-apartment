@@ -8,6 +8,34 @@
       "when": 1787985445537,
       "tag": "0000_thick_stardust",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788103206285,
+      "tag": "0001_enable_row_level_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788186475036,
+      "tag": "0002_soft_betty_ross",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788188564580,
+      "tag": "0003_overconfident_runaways",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788194757834,
+      "tag": "0004_famous_natasha_romanoff",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { JwtService } from '@nestjs/jwt';
 import { RealtimeGateway } from './realtime.gateway';
+import { RbacService } from '../rbac/rbac.service';
 import { Server, Socket } from 'socket.io';
 
 describe('RealtimeGateway', () => {
   let gateway: RealtimeGateway;
+  let mockJwtService: any;
+  let mockRbac: any;
   let mockServer: Partial<Server>;
   let mockSocket: Partial<Socket>;
   let joinedRooms: string[];
@@ -13,8 +17,21 @@ describe('RealtimeGateway', () => {
     joinedRooms = [];
     emittedEvents = [];
 
+    mockJwtService = {
+      verifyAsync: jest.fn(),
+    };
+
+    mockRbac = {
+      getUserContexts: jest.fn().mockResolvedValue({ units: [], societies: [] }),
+      assertPermission: jest.fn().mockResolvedValue(false),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [RealtimeGateway],
+      providers: [
+        RealtimeGateway,
+        { provide: JwtService, useValue: mockJwtService },
+        { provide: RbacService, useValue: mockRbac },
+      ],
     }).compile();
 
     gateway = module.get<RealtimeGateway>(RealtimeGateway);
@@ -53,6 +70,7 @@ describe('RealtimeGateway', () => {
         }
         return Promise.resolve();
       }),
+      disconnect: jest.fn(),
     };
   });
 
@@ -60,54 +78,114 @@ describe('RealtimeGateway', () => {
     expect(gateway).toBeDefined();
   });
 
-  describe('handleConnection', () => {
-    it('should join client to unit, gate, society, and user rooms from query params', () => {
-      mockSocket.handshake!.query = {
-        unitId: 'unit-1',
-        gateId: 'gate-1',
-        societyId: 'soc-1',
-        userId: 'user-1',
-      };
+  describe('handleConnection - authentication', () => {
+    it('should disconnect a socket with no token at all', async () => {
+      await gateway.handleConnection(mockSocket as Socket);
 
-      gateway.handleConnection(mockSocket as Socket);
-
-      expect(mockSocket.join).toHaveBeenCalledWith('unit:unit-1');
-      expect(mockSocket.join).toHaveBeenCalledWith('gate:gate-1');
-      expect(mockSocket.join).toHaveBeenCalledWith('society:soc-1');
-      expect(mockSocket.join).toHaveBeenCalledWith('user:user-1');
-      expect(joinedRooms).toEqual([
-        'unit:unit-1',
-        'gate:gate-1',
-        'society:soc-1',
-        'user:user-1',
-      ]);
-    });
-
-    it('should join client to rooms from auth params fallback', () => {
-      mockSocket.handshake!.query = {};
-      mockSocket.handshake!.auth = {
-        unitId: 'unit-2',
-        gateId: 'gate-2',
-        societyId: 'soc-2',
-        userId: 'user-2',
-      };
-
-      gateway.handleConnection(mockSocket as Socket);
-
-      expect(mockSocket.join).toHaveBeenCalledWith('unit:unit-2');
-      expect(mockSocket.join).toHaveBeenCalledWith('gate:gate-2');
-      expect(mockSocket.join).toHaveBeenCalledWith('society:soc-2');
-      expect(mockSocket.join).toHaveBeenCalledWith('user:user-2');
-    });
-
-    it('should handle connections without query or auth params gracefully', () => {
-      mockSocket.handshake!.query = {};
-      mockSocket.handshake!.auth = {};
-
-      gateway.handleConnection(mockSocket as Socket);
-
-      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(mockSocket.disconnect).toHaveBeenCalledWith(true);
+      expect(mockJwtService.verifyAsync).not.toHaveBeenCalled();
       expect(joinedRooms).toHaveLength(0);
+    });
+
+    it('should disconnect a socket whose token fails verification', async () => {
+      mockSocket.handshake!.auth = { token: 'bad-token' };
+      mockJwtService.verifyAsync.mockRejectedValue(new Error('invalid signature'));
+
+      await gateway.handleConnection(mockSocket as Socket);
+
+      expect(mockSocket.disconnect).toHaveBeenCalledWith(true);
+      expect(joinedRooms).toHaveLength(0);
+    });
+
+    it('should accept a Bearer token from the Authorization header', async () => {
+      mockSocket.handshake!.headers = { authorization: 'Bearer good-token' };
+      mockJwtService.verifyAsync.mockResolvedValue({ sub: 'user-1' });
+
+      await gateway.handleConnection(mockSocket as Socket);
+
+      expect(mockJwtService.verifyAsync).toHaveBeenCalledWith('good-token');
+      expect(mockSocket.disconnect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handleConnection - room membership is derived server-side, never trusted from the client', () => {
+    it('should ignore a client-supplied unitId/societyId that the token owner has no grant for', async () => {
+      mockSocket.handshake!.auth = { token: 'good-token' };
+      mockSocket.handshake!.query = {
+        unitId: 'unit-someone-elses',
+        societyId: 'soc-someone-elses',
+      };
+      mockJwtService.verifyAsync.mockResolvedValue({ sub: 'user-1', isSuperadmin: false });
+      mockRbac.getUserContexts.mockResolvedValue({ units: [], societies: [] });
+
+      await gateway.handleConnection(mockSocket as Socket);
+
+      expect(joinedRooms).toEqual(['user:user-1']);
+      expect(joinedRooms).not.toContain('unit:unit-someone-elses');
+      expect(joinedRooms).not.toContain('society:soc-someone-elses');
+    });
+
+    it('should join unit and society rooms resolved from the authenticated user RBAC context', async () => {
+      mockSocket.handshake!.auth = { token: 'good-token' };
+      mockJwtService.verifyAsync.mockResolvedValue({ sub: 'user-1' });
+      mockRbac.getUserContexts.mockResolvedValue({
+        units: [{ unitId: 'unit-1', societyId: 'soc-1', role: 'OWNER' }],
+        societies: [{ societyId: 'soc-2', role: 'SOCIETY_ADMIN' }],
+      });
+
+      await gateway.handleConnection(mockSocket as Socket);
+
+      expect(joinedRooms).toEqual(
+        expect.arrayContaining(['user:user-1', 'unit:unit-1', 'society:soc-2']),
+      );
+    });
+
+    it('should only join a requested gate room if RBAC grants entry.view@GATE for it', async () => {
+      mockSocket.handshake!.auth = { token: 'good-token' };
+      mockSocket.handshake!.query = { gateId: 'gate-1' };
+      mockJwtService.verifyAsync.mockResolvedValue({ sub: 'guard-1' });
+      mockRbac.getUserContexts.mockResolvedValue({ units: [], societies: [] });
+      mockRbac.assertPermission.mockResolvedValue(true);
+
+      await gateway.handleConnection(mockSocket as Socket);
+
+      expect(mockRbac.assertPermission).toHaveBeenCalledWith(
+        'guard-1',
+        'entry.view',
+        'GATE',
+        'gate-1',
+      );
+      expect(joinedRooms).toContain('gate:gate-1');
+    });
+
+    it('should not join a requested gate room when RBAC denies it', async () => {
+      mockSocket.handshake!.auth = { token: 'good-token' };
+      mockSocket.handshake!.query = { gateId: 'gate-not-mine' };
+      mockJwtService.verifyAsync.mockResolvedValue({ sub: 'guard-1' });
+      mockRbac.getUserContexts.mockResolvedValue({ units: [], societies: [] });
+      mockRbac.assertPermission.mockResolvedValue(false);
+
+      await gateway.handleConnection(mockSocket as Socket);
+
+      expect(joinedRooms).not.toContain('gate:gate-not-mine');
+    });
+
+    it('should let a superadmin join any explicitly requested room without an RBAC lookup', async () => {
+      mockSocket.handshake!.auth = { token: 'good-token' };
+      mockSocket.handshake!.query = {
+        unitId: 'unit-any',
+        societyId: 'soc-any',
+        gateId: 'gate-any',
+      };
+      mockJwtService.verifyAsync.mockResolvedValue({ sub: 'root', isSuperadmin: true });
+
+      await gateway.handleConnection(mockSocket as Socket);
+
+      expect(joinedRooms).toEqual(
+        expect.arrayContaining(['user:root', 'unit:unit-any', 'society:soc-any', 'gate:gate-any']),
+      );
+      expect(mockRbac.getUserContexts).not.toHaveBeenCalled();
+      expect(mockRbac.assertPermission).not.toHaveBeenCalled();
     });
   });
 

@@ -32,8 +32,14 @@ export class RbacScopeGuard implements CanActivate {
       throw new ForbiddenException('User not authenticated');
     }
 
+    const userId = user.id || user.userId || user.sub;
+
     // Superadmin universal override
     if (user.isSuperadmin) {
+      // No societyId to scope to (and none needed — every RLS policy already grants
+      // is_superadmin a full bypass), but still route the request through a real
+      // transaction so RlsContextInterceptor picks it up.
+      request.rlsContext = { userId, isSuperadmin: true };
       return true;
     }
 
@@ -50,12 +56,13 @@ export class RbacScopeGuard implements CanActivate {
       request.body?.societyId ||
       request.body?.gateId;
 
-    const userId = user.id || user.userId || user.sub;
+    const resolvedTargetScopeId = typeof targetScopeId === 'string' ? targetScopeId : undefined;
+
     const hasPermission = await this.rbacService.assertPermission(
       userId,
       permMeta.action,
       permMeta.scopeType,
-      typeof targetScopeId === 'string' ? targetScopeId : undefined,
+      resolvedTargetScopeId,
     );
 
     if (!hasPermission) {
@@ -63,6 +70,16 @@ export class RbacScopeGuard implements CanActivate {
         `Missing required permission: ${permMeta.action} on ${permMeta.scopeType}`,
       );
     }
+
+    // Resolved independently of the pass/fail decision above (assertPermission already
+    // made that call) — this purely determines which society's rows RlsContextInterceptor
+    // should scope the rest of the request's queries to at the database level.
+    const societyId = await this.rbacService.resolveScopeSocietyId(
+      userId,
+      permMeta.scopeType,
+      resolvedTargetScopeId,
+    );
+    request.rlsContext = { userId, isSuperadmin: false, societyId };
 
     return true;
   }

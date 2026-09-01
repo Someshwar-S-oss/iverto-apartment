@@ -1,6 +1,7 @@
 import { pgTable, uuid, boolean, timestamp } from 'drizzle-orm/pg-core';
 import { users } from './users';
 import { societies, units } from './societies';
+import { gates } from './gates';
 import { unitRoleEnum, societyRoleEnum } from './enums';
 
 export const unitMemberships = pgTable('unit_memberships', {
@@ -19,4 +20,11 @@ export const societyRoles = pgTable('society_roles', {
   societyId: uuid('society_id').references(() => societies.id, { onDelete: 'cascade' }).notNull(),
   role: societyRoleEnum('role').notNull(),
   active: boolean('active').default(true).notNull(),
+  // Scopes a GUARD (or GUARD_SUPERVISOR) role row to one specific gate. NULL means
+  // "every gate in the society" — the pre-existing behaviour, and still the norm for
+  // GUARD_SUPERVISOR (who already holds society-wide `entry.view@SOCIETY`) and for any
+  // GUARD row nobody has assigned to a particular gate yet. See rbac.service.ts's GATE
+  // branch of assertPermission for how this is enforced, and getUserContexts for how a
+  // NULL-gate row expands into one context per gate the society actually has.
+  gateId: uuid('gate_id').references(() => gates.id, { onDelete: 'set null' }),
 });

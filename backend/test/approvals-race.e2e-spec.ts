@@ -122,8 +122,8 @@ describe('Approvals Atomic Decision & Race Condition E2E Suite', () => {
 
     // Simulate two residents in same unit tapping Approve and Reject at the exact same millisecond
     const results = await Promise.allSettled([
-      approvalsService.decideApproval('appr-race-1', user1, 'APPROVED'),
-      approvalsService.decideApproval('appr-race-1', user2, 'REJECTED'),
+      approvalsService.decideApproval('appr-race-1', 'unit-101', user1, 'APPROVED'),
+      approvalsService.decideApproval('appr-race-1', 'unit-101', user2, 'REJECTED'),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<any>[];
@@ -140,7 +140,7 @@ describe('Approvals Atomic Decision & Race Condition E2E Suite', () => {
 
     // Loser receives 409 ConflictException
     expect(rejected[0].reason).toBeInstanceOf(ConflictException);
-    expect(rejected[0].reason.message).toContain('Approval request already decided or expired');
+    expect(rejected[0].reason.message).toContain('already decided');
 
     // Real-time broadcast occurred for the winner decision
     expect(mockRealtime.emitToGate).toHaveBeenCalledTimes(1);
@@ -159,7 +159,7 @@ describe('Approvals Atomic Decision & Race Condition E2E Suite', () => {
     inMemoryDb.approvalRequests[0].status = 'APPROVED';
 
     await expect(
-      approvalsService.decideApproval('appr-race-1', 'resident-uuid-3', 'REJECTED'),
+      approvalsService.decideApproval('appr-race-1', 'unit-101', 'resident-uuid-3', 'REJECTED'),
     ).rejects.toThrow(ConflictException);
   });
 

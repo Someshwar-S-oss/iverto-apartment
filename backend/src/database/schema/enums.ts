@@ -12,3 +12,7 @@ export const directionEnum = pgEnum('direction', ['IN', 'OUT']);
 export const approvalStatusEnum = pgEnum('approval_status', ['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'AUTO_APPROVED']);
 export const deliveryPlatformEnum = pgEnum('delivery_platform', ['BLINKIT', 'ZEPTO', 'SWIGGY', 'INSTAMART', 'AMAZON', 'FLIPKART', 'OTHER']);
 export const deliveryModeEnum = pgEnum('delivery_mode', ['ASK_ME', 'LEAVE_AT_GATE', 'ALLOW_TO_DOOR']);
+export const noticeCategoryEnum = pgEnum('notice_category', ['GENERAL', 'MAINTENANCE', 'SECURITY', 'EVENT', 'EMERGENCY', 'BILLING']);
+export const complaintCategoryEnum = pgEnum('complaint_category', ['PLUMBING', 'ELECTRICAL', 'SECURITY', 'PARKING', 'NOISE', 'CLEANLINESS', 'LIFT_ELEVATOR', 'OTHER']);
+export const complaintPriorityEnum = pgEnum('complaint_priority', ['LOW', 'MEDIUM', 'HIGH', 'URGENT']);
+export const complaintStatusEnum = pgEnum('complaint_status', ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']);

@@ -8,6 +8,7 @@ import {
   Query,
   Body,
   UseGuards,
+  UseInterceptors,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
@@ -23,14 +24,12 @@ import { passcodes, deliveryPermissions, units } from '../../database/schema';
 import { ApprovalsService } from '../../modules/approvals/approvals.service';
 import { EntryEventsService } from '../../modules/entry-events/entry-events.service';
 import { StaffService } from '../../modules/staff/staff.service';
+import { NoticesService } from '../../modules/community/notices.service';
+import { ComplaintsService, CreateComplaintDto } from '../../modules/community/complaints.service';
+import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.interceptor';
 
 export interface DecideApprovalDto {
   decision: 'APPROVED' | 'REJECTED';
-}
-
-export interface AssignStaffDto {
-  staffId: string;
-  notify?: boolean;
 }
 
 export interface CreatePasscodeDto {
@@ -59,7 +58,24 @@ export class MobileResidentController {
     private readonly approvalsService: ApprovalsService,
     private readonly entryEventsService: EntryEventsService,
     private readonly staffService: StaffService,
+    private readonly noticesService: NoticesService,
+    private readonly complaintsService: ComplaintsService,
   ) {}
+
+  /** Resolves the society a unit belongs to, for endpoints that read society-wide data. */
+  private async resolveSocietyId(unitId: string): Promise<string> {
+    const [unit] = await this.drizzle.db
+      .select({ societyId: units.societyId })
+      .from(units)
+      .where(eq(units.id, unitId))
+      .limit(1);
+
+    if (!unit) {
+      throw new NotFoundException(`Unit ${unitId} not found`);
+    }
+
+    return unit.societyId;
+  }
 
   @Get('pending')
   @RequirePermission('approval.decide', ScopeType.UNIT)
@@ -68,9 +84,10 @@ export class MobileResidentController {
   }
 
   @Post('approvals/:id/decide')
+  @UseInterceptors(IdempotencyInterceptor)
   @RequirePermission('approval.decide', ScopeType.UNIT)
   async decideApproval(
-    @Param('unitId') _unitId: string,
+    @Param('unitId') unitId: string,
     @Param('id') approvalId: string,
     @CurrentUser('sub') userId: string,
     @Body() body: DecideApprovalDto,
@@ -78,7 +95,7 @@ export class MobileResidentController {
     if (!body.decision || !['APPROVED', 'REJECTED'].includes(body.decision)) {
       throw new BadRequestException('Decision must be APPROVED or REJECTED');
     }
-    return this.approvalsService.decideApproval(approvalId, userId, body.decision);
+    return this.approvalsService.decideApproval(approvalId, unitId, userId, body.decision);
   }
 
   @Get('entry-events')
@@ -95,47 +112,41 @@ export class MobileResidentController {
     );
   }
 
-  @Get('society-staff')
-  @RequirePermission('entry.view', ScopeType.UNIT)
-  async getAvailableSocietyStaff(@Param('unitId') unitId: string) {
-    const [unit] = await this.drizzle.db
-      .select({ societyId: units.societyId })
-      .from(units)
-      .where(eq(units.id, unitId))
-      .limit(1);
-
-    if (!unit) {
-      throw new NotFoundException(`Unit ${unitId} not found`);
-    }
-
-    return this.staffService.listStaffBySociety(unit.societyId, 'ACTIVE');
-  }
-
+  // Residents can view which staff are assigned to their flat but cannot assign or
+  // unassign staff themselves — that's a site-admin-only action, see
+  // SocietyAdminController's `staff/:staffId/units/:targetUnitId` endpoints.
   @Get('staff')
   @RequirePermission('entry.view', ScopeType.UNIT)
   async getStaff(@Param('unitId') unitId: string) {
     return this.staffService.listStaffByUnit(unitId);
   }
 
-  @Post('staff')
-  @RequirePermission('staff.assign', ScopeType.UNIT)
-  async assignStaff(
-    @Param('unitId') unitId: string,
-    @Body() body: AssignStaffDto,
-  ) {
-    if (!body.staffId) {
-      throw new BadRequestException('staffId is required');
-    }
-    return this.staffService.assignStaffToUnit(body.staffId, unitId, body.notify ?? true);
+  @Get('notices')
+  @RequirePermission('notice.read', ScopeType.UNIT)
+  async getNotices(@Param('unitId') unitId: string) {
+    const societyId = await this.resolveSocietyId(unitId);
+    return this.noticesService.listBySociety(societyId);
   }
 
-  @Delete('staff/:staffId')
-  @RequirePermission('staff.assign', ScopeType.UNIT)
-  async unassignStaff(
+  @Get('complaints')
+  @RequirePermission('complaint.view', ScopeType.UNIT)
+  async getComplaints(@Param('unitId') unitId: string) {
+    const societyId = await this.resolveSocietyId(unitId);
+    return this.complaintsService.listByUnit(societyId, unitId);
+  }
+
+  @Post('complaints')
+  @RequirePermission('complaint.create', ScopeType.UNIT)
+  async raiseComplaint(
     @Param('unitId') unitId: string,
-    @Param('staffId') staffId: string,
+    @CurrentUser('sub') userId: string,
+    @Body() body: Omit<CreateComplaintDto, 'unitId'>,
   ) {
-    return this.staffService.unassignStaffFromUnit(staffId, unitId);
+    if (!body.title?.trim() || !body.description?.trim()) {
+      throw new BadRequestException('title and description are required');
+    }
+    const societyId = await this.resolveSocietyId(unitId);
+    return this.complaintsService.create(societyId, unitId, userId, { ...body, unitId });
   }
 
   @Post('passcodes')

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Query,
   Body,
@@ -16,6 +17,7 @@ import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import { PasswordChangeGuard } from '../../modules/auth/guards/password-change.guard';
 import { RbacScopeGuard } from '../../modules/rbac/guards/rbac-scope.guard';
 import { RequirePermission } from '../../modules/rbac/decorators/require-permission.decorator';
+import { CurrentUser } from '../../modules/rbac/decorators/current-user.decorator';
 import { ScopeType } from '../../modules/rbac/rbac.constants';
 import { DrizzleService } from '../../database/drizzle.service';
 import {
@@ -27,10 +29,17 @@ import {
   staff,
   devices,
   entryEvents,
+  gates,
 } from '../../database/schema';
 import { AuthService } from '../../modules/auth/auth.service';
 import { StaffService } from '../../modules/staff/staff.service';
 import { EntryEventsService } from '../../modules/entry-events/entry-events.service';
+import { NoticesService, CreateNoticeDto } from '../../modules/community/notices.service';
+import {
+  ComplaintsService,
+  UpdateComplaintStatusDto,
+} from '../../modules/community/complaints.service';
+import { GatesService, CreateGateDto, UpdateGateDto } from '../../modules/gates/gates.service';
 
 export interface CreateSocietyUserDto {
   email: string;
@@ -39,6 +48,14 @@ export interface CreateSocietyUserDto {
   role: 'OWNER' | 'TENANT' | 'FAMILY' | 'GUARD' | 'GUARD_SUPERVISOR' | 'SOCIETY_ADMIN';
   unitId?: string;
   isPrimary?: boolean;
+  // Only meaningful for GUARD/GUARD_SUPERVISOR. Omitted or null = unrestricted (every
+  // gate in the society) — the default for GUARD_SUPERVISOR and for a GUARD nobody has
+  // assigned to a specific gate yet.
+  gateId?: string | null;
+}
+
+export interface AssignGuardGateDto {
+  gateId: string | null;
 }
 
 export interface CreateBuildingDto {
@@ -71,6 +88,9 @@ export class SocietyAdminController {
     private readonly authService: AuthService,
     private readonly staffService: StaffService,
     private readonly entryEventsService: EntryEventsService,
+    private readonly noticesService: NoticesService,
+    private readonly complaintsService: ComplaintsService,
+    private readonly gatesService: GatesService,
   ) {}
 
   @Get('dashboard')
@@ -141,6 +161,18 @@ export class SocietyAdminController {
       }
     }
 
+    if (body.gateId && (body.role === 'GUARD' || body.role === 'GUARD_SUPERVISOR')) {
+      const [gate] = await this.drizzle.db
+        .select({ id: gates.id })
+        .from(gates)
+        .where(and(eq(gates.id, body.gateId), eq(gates.societyId, societyId)))
+        .limit(1);
+
+      if (!gate) {
+        throw new NotFoundException(`Gate ${body.gateId} not found in society ${societyId}`);
+      }
+    }
+
     const rawTempPassword = AuthService.generateTempPassword(body.phone);
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(rawTempPassword, salt);
@@ -176,11 +208,13 @@ export class SocietyAdminController {
         isPrimary: body.isPrimary ?? false,
       });
     } else if (societyRolesList.includes(body.role)) {
+      const isGuardRole = body.role === 'GUARD' || body.role === 'GUARD_SUPERVISOR';
       await this.drizzle.db.insert(societyRoles).values({
         userId: user.id,
         societyId,
         role: body.role as 'GUARD' | 'GUARD_SUPERVISOR' | 'SOCIETY_ADMIN',
         active: true,
+        gateId: isGuardRole ? body.gateId || null : null,
       });
     }
 
@@ -228,11 +262,14 @@ export class SocietyAdminController {
         email: users.email,
         phone: users.phone,
         role: societyRoles.role,
+        gateId: societyRoles.gateId,
+        gateName: gates.name,
         status: users.status,
         createdAt: users.createdAt,
       })
       .from(societyRoles)
       .innerJoin(users, eq(societyRoles.userId, users.id))
+      .leftJoin(gates, eq(societyRoles.gateId, gates.id))
       .where(
         and(
           eq(societyRoles.societyId, societyId),
@@ -259,6 +296,15 @@ export class SocietyAdminController {
       .where(eq(units.societyId, societyId));
 
     return rows;
+  }
+
+  @Get('buildings')
+  @RequirePermission('unit.manage', ScopeType.SOCIETY)
+  async listBuildings(@Param('societyId') societyId: string) {
+    return this.drizzle.db
+      .select()
+      .from(buildings)
+      .where(eq(buildings.societyId, societyId));
   }
 
   @Post('buildings')
@@ -360,6 +406,119 @@ export class SocietyAdminController {
     return updated;
   }
 
+  /**
+   * Assign/unassign/list a unit's staff use `targetUnitId` rather than `unitId` as the
+   * route param name on purpose: RbacScopeGuard resolves its RLS/permission scope target
+   * from `request.params.unitId` before `request.params.societyId` (see its param
+   * priority list), which would misroute these SOCIETY-scoped admin routes onto a
+   * UNIT-scope lookup if the param were literally named `unitId`.
+   */
+  @Get('units/:targetUnitId/staff')
+  @RequirePermission('staff.manage', ScopeType.SOCIETY)
+  async listUnitStaff(
+    @Param('societyId') societyId: string,
+    @Param('targetUnitId') targetUnitId: string,
+  ) {
+    await this.assertUnitInSociety(societyId, targetUnitId);
+    return this.staffService.listStaffByUnit(targetUnitId);
+  }
+
+  @Post('staff/:staffId/units/:targetUnitId')
+  @RequirePermission('staff.assign', ScopeType.SOCIETY)
+  async assignStaffToUnit(
+    @Param('societyId') societyId: string,
+    @Param('staffId') staffId: string,
+    @Param('targetUnitId') targetUnitId: string,
+    @Body() body: { notify?: boolean },
+  ) {
+    await this.assertUnitInSociety(societyId, targetUnitId);
+    return this.staffService.assignStaffToUnit(staffId, targetUnitId, body?.notify ?? true);
+  }
+
+  @Delete('staff/:staffId/units/:targetUnitId')
+  @RequirePermission('staff.assign', ScopeType.SOCIETY)
+  async unassignStaffFromUnit(
+    @Param('societyId') societyId: string,
+    @Param('staffId') staffId: string,
+    @Param('targetUnitId') targetUnitId: string,
+  ) {
+    await this.assertUnitInSociety(societyId, targetUnitId);
+    return this.staffService.unassignStaffFromUnit(staffId, targetUnitId);
+  }
+
+  private async assertUnitInSociety(societyId: string, unitId: string) {
+    const [unit] = await this.drizzle.db
+      .select({ id: units.id })
+      .from(units)
+      .where(and(eq(units.id, unitId), eq(units.societyId, societyId)))
+      .limit(1);
+
+    if (!unit) {
+      throw new NotFoundException(`Unit ${unitId} not found in society ${societyId}`);
+    }
+  }
+
+  @Get('notices')
+  @RequirePermission('notice.post', ScopeType.SOCIETY)
+  async listNotices(@Param('societyId') societyId: string) {
+    return this.noticesService.listBySociety(societyId);
+  }
+
+  @Post('notices')
+  @RequirePermission('notice.post', ScopeType.SOCIETY)
+  async createNotice(
+    @Param('societyId') societyId: string,
+    @CurrentUser('sub') userId: string,
+    @Body() body: CreateNoticeDto,
+  ) {
+    if (!body.title?.trim() || !body.body?.trim()) {
+      throw new BadRequestException('title and body are required');
+    }
+
+    const [author] = await this.drizzle.db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    return this.noticesService.create(societyId, body, {
+      userId,
+      name: author?.name || 'Society Admin',
+      role: 'SOCIETY_ADMIN',
+    });
+  }
+
+  @Patch('notices/:id/pin')
+  @RequirePermission('notice.post', ScopeType.SOCIETY)
+  async toggleNoticePin(@Param('societyId') societyId: string, @Param('id') id: string) {
+    return this.noticesService.togglePin(societyId, id);
+  }
+
+  @Delete('notices/:id')
+  @RequirePermission('notice.post', ScopeType.SOCIETY)
+  async deleteNotice(@Param('societyId') societyId: string, @Param('id') id: string) {
+    return this.noticesService.delete(societyId, id);
+  }
+
+  @Get('complaints')
+  @RequirePermission('complaint.manage', ScopeType.SOCIETY)
+  async listComplaints(@Param('societyId') societyId: string) {
+    return this.complaintsService.listBySociety(societyId);
+  }
+
+  @Patch('complaints/:id')
+  @RequirePermission('complaint.manage', ScopeType.SOCIETY)
+  async updateComplaint(
+    @Param('societyId') societyId: string,
+    @Param('id') id: string,
+    @Body() body: UpdateComplaintStatusDto,
+  ) {
+    if (!body.status) {
+      throw new BadRequestException('status is required');
+    }
+    return this.complaintsService.updateStatus(societyId, id, body);
+  }
+
   @Get('logs')
   @RequirePermission('entry.view', ScopeType.SOCIETY)
   async getLogs(
@@ -378,8 +537,68 @@ export class SocietyAdminController {
   @RequirePermission('device.manage', ScopeType.SOCIETY)
   async listDevices(@Param('societyId') societyId: string) {
     return this.drizzle.db
-      .select()
+      .select({
+        id: devices.id,
+        societyId: devices.societyId,
+        gateId: devices.gateId,
+        gateName: gates.name,
+        vendor: devices.vendor,
+        serialNo: devices.serialNo,
+        name: devices.name,
+        authToken: devices.authToken,
+        lastHeartbeatAt: devices.lastHeartbeatAt,
+        status: devices.status,
+        createdAt: devices.createdAt,
+      })
       .from(devices)
+      .leftJoin(gates, eq(devices.gateId, gates.id))
       .where(eq(devices.societyId, societyId));
+  }
+
+  @Get('gates')
+  @RequirePermission('gate.manage', ScopeType.SOCIETY)
+  async listGates(@Param('societyId') societyId: string) {
+    return this.gatesService.listBySociety(societyId);
+  }
+
+  @Post('gates')
+  @RequirePermission('gate.manage', ScopeType.SOCIETY)
+  async createGate(@Param('societyId') societyId: string, @Body() body: CreateGateDto) {
+    if (!body.name?.trim()) {
+      throw new BadRequestException('name is required');
+    }
+    return this.gatesService.create(societyId, body);
+  }
+
+  @Patch('gates/:id')
+  @RequirePermission('gate.manage', ScopeType.SOCIETY)
+  async updateGate(
+    @Param('societyId') societyId: string,
+    @Param('id') id: string,
+    @Body() body: UpdateGateDto,
+  ) {
+    return this.gatesService.update(societyId, id, body);
+  }
+
+  @Delete('gates/:id')
+  @RequirePermission('gate.manage', ScopeType.SOCIETY)
+  async deleteGate(@Param('societyId') societyId: string, @Param('id') id: string) {
+    return this.gatesService.delete(societyId, id);
+  }
+
+  /**
+   * Assign (or, with `gateId: null`, unassign back to unrestricted) a guard/supervisor
+   * to a specific gate. `targetUserId` rather than `userId` on purpose — same
+   * RbacScopeGuard param-priority reasoning as `staff/:staffId/units/:targetUnitId`
+   * above, so this SOCIETY-scoped route doesn't get accidentally misrouted.
+   */
+  @Patch('guards/:targetUserId/gate')
+  @RequirePermission('gate.manage', ScopeType.SOCIETY)
+  async assignGuardGate(
+    @Param('societyId') societyId: string,
+    @Param('targetUserId') targetUserId: string,
+    @Body() body: AssignGuardGateDto,
+  ) {
+    return this.gatesService.assignGuardToGate(societyId, targetUserId, body?.gateId ?? null);
   }
 }

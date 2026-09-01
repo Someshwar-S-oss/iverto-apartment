@@ -35,7 +35,7 @@ describe('M50Service', () => {
         M50Service,
         {
           provide: DrizzleService,
-          useValue: { db: mockDb },
+          useValue: { db: mockDb, withTenantContext: jest.fn((_ctx: any, cb: any) => cb()) },
         },
         {
           provide: ConfigService,

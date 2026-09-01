@@ -9,7 +9,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { eq, count } from 'drizzle-orm';
+import { and, eq, count } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import { PasswordChangeGuard } from '../../modules/auth/guards/password-change.guard';
@@ -17,7 +17,7 @@ import { RbacScopeGuard } from '../../modules/rbac/guards/rbac-scope.guard';
 import { RequirePermission } from '../../modules/rbac/decorators/require-permission.decorator';
 import { ScopeType } from '../../modules/rbac/rbac.constants';
 import { DrizzleService } from '../../database/drizzle.service';
-import { societies, users, societyRoles, devices, entryEvents } from '../../database/schema';
+import { societies, users, societyRoles, devices, entryEvents, gates } from '../../database/schema';
 import { AuthService } from '../../modules/auth/auth.service';
 
 export interface CreateSocietyDto {
@@ -159,6 +159,21 @@ export class SuperadminController {
       throw new BadRequestException('societyId, serialNo, and vendor are required');
     }
 
+    // devices.gateId is a real FK now (was a bare uuid) — validate up front for a clean
+    // 404 instead of letting an unknown/cross-society gate id fall through to a raw FK
+    // violation.
+    if (body.gateId) {
+      const [gate] = await this.drizzle.db
+        .select({ id: gates.id })
+        .from(gates)
+        .where(and(eq(gates.id, body.gateId), eq(gates.societyId, body.societyId)))
+        .limit(1);
+
+      if (!gate) {
+        throw new NotFoundException(`Gate ${body.gateId} not found in society ${body.societyId}`);
+      }
+    }
+
     const [device] = await this.drizzle.db
       .insert(devices)
       .values({
@@ -178,7 +193,31 @@ export class SuperadminController {
   @Get('devices')
   @RequirePermission('device.manage', ScopeType.GLOBAL)
   async listDevices() {
-    return this.drizzle.db.select().from(devices);
+    return this.drizzle.db
+      .select({
+        id: devices.id,
+        societyId: devices.societyId,
+        gateId: devices.gateId,
+        gateName: gates.name,
+        vendor: devices.vendor,
+        serialNo: devices.serialNo,
+        name: devices.name,
+        authToken: devices.authToken,
+        lastHeartbeatAt: devices.lastHeartbeatAt,
+        status: devices.status,
+        createdAt: devices.createdAt,
+      })
+      .from(devices)
+      .leftJoin(gates, eq(devices.gateId, gates.id));
+  }
+
+  @Get('societies/:societyId/gates')
+  @RequirePermission('device.manage', ScopeType.GLOBAL)
+  async listGatesForProvisioning(@Param('societyId') societyId: string) {
+    return this.drizzle.db
+      .select()
+      .from(gates)
+      .where(eq(gates.societyId, societyId));
   }
 
   @Get('analytics')

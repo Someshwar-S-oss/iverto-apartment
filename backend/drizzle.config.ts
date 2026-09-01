@@ -8,6 +8,8 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || '',
+    // Migrations run DDL, which should go over the direct (non-pooled) connection when
+    // available — PgBouncer transaction-mode pooling can be flaky for schema changes.
+    url: process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL || '',
   },
 });

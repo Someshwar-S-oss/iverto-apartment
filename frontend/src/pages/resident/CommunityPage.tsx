@@ -11,7 +11,7 @@ import {
   ChevronRight,
   Eye,
 } from 'lucide-react';
-import { societyAdminApi } from '../../api/society-admin.api';
+import { residentApi } from '../../api/resident.api';
 import type {
   Notice,
   NoticeCategory,
@@ -26,25 +26,18 @@ import { Modal } from '../../components/ui/Modal';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 
 export const CommunityPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { activeContext } = useRole();
-  const { user } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
 
-  const societyId =
-    activeContext?.societyId ||
-    (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
-    '';
   const unitId =
     activeContext?.unitId ||
     (activeContext?.type === 'UNIT' ? activeContext.id : '') ||
     '';
   const unitNumber = activeContext?.unitNumber || activeContext?.label || 'Flat';
-  const buildingName = activeContext?.buildingName || '';
   const societyName = activeContext?.societyName || 'Society';
 
   const [activeTab, setActiveTab] = useState<'notices' | 'complaints'>('notices');
@@ -90,10 +83,11 @@ export const CommunityPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch notices & complaints
+  // Fetch notices & complaints — both scoped server-side to this resident's own unit
+  // and society (see mobile-resident.controller.ts), so no client-side filtering needed.
   const fetchCommunityData = useCallback(
     async (showRefreshing = false) => {
-      if (!societyId) return;
+      if (!unitId) return;
 
       if (showRefreshing) {
         setIsRefreshing(true);
@@ -103,19 +97,12 @@ export const CommunityPage: React.FC = () => {
 
       try {
         const [noticesData, complaintsData] = await Promise.all([
-          societyAdminApi.getNotices(societyId).catch(() => []),
-          societyAdminApi.getComplaints(societyId).catch(() => []),
+          residentApi.getNotices(unitId).catch(() => []),
+          residentApi.getComplaints(unitId).catch(() => []),
         ]);
 
         setNotices(noticesData || []);
-        // Filter complaints for current resident / unit
-        const myComplaints = (complaintsData || []).filter(
-          (c) =>
-            (c.unitId && c.unitId === unitId) ||
-            (c.unitNumber && c.unitNumber === unitNumber) ||
-            (c.residentName && c.residentName === (user?.name || '')),
-        );
-        setComplaints(myComplaints.length > 0 ? myComplaints : complaintsData || []);
+        setComplaints(complaintsData || []);
       } catch (err: any) {
         console.error('Failed to load community updates:', err);
         toastError('Failed to fetch community updates.');
@@ -124,7 +111,7 @@ export const CommunityPage: React.FC = () => {
         setIsRefreshing(false);
       }
     },
-    [societyId, unitId, unitNumber, user?.name, toastError],
+    [unitId, toastError],
   );
 
   useEffect(() => {
@@ -134,16 +121,11 @@ export const CommunityPage: React.FC = () => {
   // Handle Submit New Complaint
   const handleRaiseComplaint = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!societyId || !complaintForm.title || !complaintForm.description) return;
+    if (!unitId || !complaintForm.title || !complaintForm.description) return;
 
     setIsSubmittingComplaint(true);
     try {
-      const created = await societyAdminApi.createComplaint(societyId, {
-        unitId,
-        unitNumber,
-        buildingName,
-        residentName: user?.name || 'Resident',
-        residentPhone: user?.phone || '',
+      const created = await residentApi.createComplaint(unitId, {
         title: complaintForm.title.trim(),
         description: complaintForm.description.trim(),
         category: complaintForm.category,

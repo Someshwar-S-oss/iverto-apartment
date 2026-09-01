@@ -14,6 +14,7 @@ describe('RbacScopeGuard', () => {
   beforeEach(async () => {
     const mockRbacService = {
       assertPermission: jest.fn(),
+      resolveScopeSocietyId: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -50,6 +51,7 @@ describe('RbacScopeGuard', () => {
       }),
       getHandler: () => ({}),
       getClass: () => ({}),
+      req, // exposed for assertions on request.rlsContext after canActivate runs
     } as unknown as ExecutionContext;
   };
 
@@ -90,6 +92,7 @@ describe('RbacScopeGuard', () => {
 
     expect(result).toBe(true);
     expect(rbacService.assertPermission).not.toHaveBeenCalled();
+    expect((context as any).req.rlsContext).toEqual({ userId: 'admin-1', isSuperadmin: true });
   });
 
   it('should extract targetScopeId from route params and invoke rbacService.assertPermission', async () => {
@@ -99,6 +102,7 @@ describe('RbacScopeGuard', () => {
     });
 
     rbacService.assertPermission.mockResolvedValue(true);
+    rbacService.resolveScopeSocietyId.mockResolvedValue('soc-999');
 
     const context = createMockExecutionContext({
       user: { id: 'user-1', isSuperadmin: false },
@@ -114,6 +118,16 @@ describe('RbacScopeGuard', () => {
       ScopeType.UNIT,
       'unit-123',
     );
+    expect(rbacService.resolveScopeSocietyId).toHaveBeenCalledWith(
+      'user-1',
+      ScopeType.UNIT,
+      'unit-123',
+    );
+    expect((context as any).req.rlsContext).toEqual({
+      userId: 'user-1',
+      isSuperadmin: false,
+      societyId: 'soc-999',
+    });
   });
 
   it('should extract targetScopeId from x-active-context-id header if params are missing', async () => {
@@ -156,5 +170,30 @@ describe('RbacScopeGuard', () => {
     await expect(guard.canActivate(context)).rejects.toThrow(
       new ForbiddenException('Missing required permission: unit.manage on SOCIETY'),
     );
+    expect(rbacService.resolveScopeSocietyId).not.toHaveBeenCalled();
+    expect((context as any).req.rlsContext).toBeUndefined();
+  });
+
+  it('should resolve societyId directly from the URL for SOCIETY-scoped routes', async () => {
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({
+      action: 'unit.manage',
+      scopeType: ScopeType.SOCIETY,
+    });
+
+    rbacService.assertPermission.mockResolvedValue(true);
+    rbacService.resolveScopeSocietyId.mockResolvedValue('soc-789');
+
+    const context = createMockExecutionContext({
+      user: { sub: 'admin-2', isSuperadmin: false },
+      params: { societyId: 'soc-789' },
+    });
+
+    await guard.canActivate(context);
+
+    expect((context as any).req.rlsContext).toEqual({
+      userId: 'admin-2',
+      isSuperadmin: false,
+      societyId: 'soc-789',
+    });
   });
 });

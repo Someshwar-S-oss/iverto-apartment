@@ -199,9 +199,11 @@ describe('SuperadminController', () => {
 
   describe('listDevices', () => {
     it('should return list of devices', async () => {
-      const mockDevices = [{ id: 'dev-1', serialNo: 'DJ20250307014' }];
+      const mockDevices = [{ id: 'dev-1', serialNo: 'DJ20250307014', gateName: 'Main Gate' }];
       mockDb.select.mockReturnValueOnce({
-        from: jest.fn().mockResolvedValueOnce(mockDevices),
+        from: jest.fn().mockReturnValueOnce({
+          leftJoin: jest.fn().mockResolvedValueOnce(mockDevices),
+        }),
       });
 
       const result = await controller.listDevices();

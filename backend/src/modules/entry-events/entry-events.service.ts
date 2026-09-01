@@ -1,21 +1,32 @@
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
-import { eq, and, or, desc, count } from 'drizzle-orm';
+import { eq, and, or, desc, count, sql } from 'drizzle-orm';
 import { DrizzleService } from '../../database/drizzle.service';
 import {
   entryEvents,
   approvalRequests,
   deliveryPermissions,
   passcodes,
+  units,
+  visitorImages,
 } from '../../database/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { VisitorImagesService } from '../media/visitor-images.service';
+import { RbacService } from '../rbac/rbac.service';
+import { ScopeType } from '../rbac/rbac.constants';
+
+export interface RequestingUser {
+  sub?: string;
+  userId?: string;
+  id?: string;
+  isSuperadmin?: boolean;
+}
 
 export interface CreateGuardEntryDto {
   unitId?: string;
@@ -61,6 +72,29 @@ export function isWithinTimeWindow(
   }
 }
 
+// Every column on entry_events, plus a computed hasPhoto — shared by all three list
+// methods below (unit/gate/society) so a client never has to call
+// GET /entry-events/:id/photo and read the 404 just to find out whether one exists
+// (that status is also "no such event", so the two used to be indistinguishable).
+const entryEventListColumns = {
+  id: entryEvents.id,
+  societyId: entryEvents.societyId,
+  gateId: entryEvents.gateId,
+  unitId: entryEvents.unitId,
+  eventSource: entryEvents.eventSource,
+  subjectType: entryEvents.subjectType,
+  staffId: entryEvents.staffId,
+  visitorName: entryEvents.visitorName,
+  visitorPhone: entryEvents.visitorPhone,
+  direction: entryEvents.direction,
+  occurredAt: entryEvents.occurredAt,
+  recordedAt: entryEvents.recordedAt,
+  guardUserId: entryEvents.guardUserId,
+  idempotencyKey: entryEvents.idempotencyKey,
+  rawPayload: entryEvents.rawPayload,
+  hasPhoto: sql<boolean>`${visitorImages.id} is not null`,
+};
+
 @Injectable()
 export class EntryEventsService {
   constructor(
@@ -69,6 +103,7 @@ export class EntryEventsService {
     private readonly notifications: NotificationsService,
     private readonly approvals: ApprovalsService,
     private readonly visitorImages: VisitorImagesService,
+    private readonly rbac: RbacService,
   ) {}
 
   async createGuardEntry(
@@ -80,7 +115,7 @@ export class EntryEventsService {
     const now = new Date();
 
     // 1. Insert entry event record
-    const [entry] = await this.drizzle.db
+    const [insertedEntry] = await this.drizzle.db
       .insert(entryEvents)
       .values({
         societyId,
@@ -101,11 +136,14 @@ export class EntryEventsService {
     // 2. Save visitor photo if provided
     if (data.photoBuffer) {
       await this.visitorImages.saveImage(
-        entry.id,
+        insertedEntry.id,
         data.photoBuffer,
         data.mimeType || 'image/jpeg',
       );
     }
+
+    // Known at insert time — no need to query visitor_images back out.
+    const entry = { ...insertedEntry, hasPhoto: Boolean(data.photoBuffer) };
 
     // 3. Handle DELIVERY subject type
     if (data.subjectType === 'DELIVERY' && data.unitId) {
@@ -341,31 +379,43 @@ export class EntryEventsService {
         codeOrQrToken,
       );
 
-    const condition = isUuid
+    const codeCondition = isUuid
       ? or(eq(passcodes.qrToken, codeOrQrToken), eq(passcodes.code, codeOrQrToken))
       : eq(passcodes.code, codeOrQrToken);
 
-    const [passcode] = await this.drizzle.db
-      .select()
+    // Join through to the unit's society so a passcode can only ever be verified by a
+    // gate belonging to the same society it was issued in. Without this, a 6-digit code
+    // (or its collision) from one society's unit could be redeemed at any other
+    // society's gate, since `code` alone isn't unique across the whole table.
+    const [row] = await this.drizzle.db
+      .select({ passcode: passcodes })
       .from(passcodes)
-      .where(condition)
+      .innerJoin(units, eq(passcodes.unitId, units.id))
+      .where(and(codeCondition, eq(units.societyId, societyId)))
       .limit(1);
 
+    const passcode = row?.passcode;
+
+    // A verdict is not an authentication failure — a mistyped 6-digit code used to
+    // return 401, which every other client in this system treats as "sign out and
+    // re-authenticate" (there's no refresh token). Returning 200 with the outcome in the
+    // body instead means a guest fat-fingering a code no longer signs out the guard mid-
+    // shift and takes the gate down for everyone behind them in the queue.
     if (!passcode) {
-      throw new UnauthorizedException('Invalid passcode or QR token');
+      return { verified: false as const, reason: 'NOT_FOUND' as const, message: 'Invalid passcode or QR token' };
     }
 
     if (passcode.revoked) {
-      throw new UnauthorizedException('Passcode has been revoked');
+      return { verified: false as const, reason: 'REVOKED' as const, message: 'Passcode has been revoked' };
     }
 
     if (passcode.usesCount >= passcode.maxUses) {
-      throw new UnauthorizedException('Passcode usage limit exceeded');
+      return { verified: false as const, reason: 'USED_UP' as const, message: 'Passcode usage limit exceeded' };
     }
 
     const now = new Date();
     if (now < passcode.validFrom || now > passcode.validUntil) {
-      throw new UnauthorizedException('Passcode is expired or not yet valid');
+      return { verified: false as const, reason: 'EXPIRED' as const, message: 'Passcode is expired or not yet valid' };
     }
 
     // Increment usage count
@@ -375,7 +425,7 @@ export class EntryEventsService {
       .where(eq(passcodes.id, passcode.id));
 
     // Log entry event
-    const [entry] = await this.drizzle.db
+    const [insertedEntry] = await this.drizzle.db
       .insert(entryEvents)
       .values({
         societyId,
@@ -391,8 +441,10 @@ export class EntryEventsService {
       .returning();
 
     if (photoBuffer) {
-      await this.visitorImages.saveImage(entry.id, photoBuffer);
+      await this.visitorImages.saveImage(insertedEntry.id, photoBuffer);
     }
+
+    const entry = { ...insertedEntry, hasPhoto: Boolean(photoBuffer) };
 
     this.realtime.emitToUnit(passcode.unitId, 'entry.passcode', {
       entryEventId: entry.id,
@@ -407,13 +459,13 @@ export class EntryEventsService {
     });
 
     return {
-      verified: true,
+      verified: true as const,
       entryEvent: entry,
       unitId: passcode.unitId,
     };
   }
 
-  async markExit(entryEventId: string, guardUserId?: string) {
+  async markExit(entryEventId: string, societyId: string, guardUserId?: string) {
     const [original] = await this.drizzle.db
       .select()
       .from(entryEvents)
@@ -421,6 +473,13 @@ export class EntryEventsService {
       .limit(1);
 
     if (!original) {
+      throw new NotFoundException(`Entry event not found: ${entryEventId}`);
+    }
+
+    // RbacScopeGuard only proves the guard is authorized at *some* gate — without this
+    // check a guard at one society's gate could close out (and silently notify) another
+    // society's entry event just by knowing its id.
+    if (original.societyId !== societyId) {
       throw new NotFoundException(`Entry event not found: ${entryEventId}`);
     }
 
@@ -461,15 +520,18 @@ export class EntryEventsService {
       });
     }
 
-    return exitEvent;
+    // An OUT row never carries a photo — no capture step in markExit's own flow — but
+    // hasPhoto is always present on entry-event rows now (item 5), never omitted.
+    return { ...exitEvent, hasPhoto: false };
   }
 
   async listUnitEntryEvents(unitId: string, page = 1, limit = 20) {
     const offset = Math.max(0, (page - 1) * limit);
 
     const items = await this.drizzle.db
-      .select()
+      .select(entryEventListColumns)
       .from(entryEvents)
+      .leftJoin(visitorImages, eq(visitorImages.entryEventId, entryEvents.id))
       .where(eq(entryEvents.unitId, unitId))
       .orderBy(desc(entryEvents.occurredAt))
       .limit(limit)
@@ -488,12 +550,60 @@ export class EntryEventsService {
     };
   }
 
+  /**
+   * The guard app's equivalent of listUnitEntryEvents — deletes the client's in-memory
+   * per-device gate log (lib/gateSession.ts), which only ever existed because there was
+   * no way to list what a gate had already logged: marking an exit needs an entry event
+   * id, and closing the app lost every id logged before restart.
+   *
+   * `open: true` filters to IN rows with no matching OUT yet — the "still inside" list a
+   * guard's home screen counts. A row is closed once an OUT row exists whose
+   * `raw_payload.originalEntryId` points back at it (see markExit above); there's no FK
+   * for that relationship (an OUT row is a new event, not an update to the IN row), so
+   * this is a NOT EXISTS on the jsonb payload rather than a join.
+   */
+  async listGateEntryEvents(gateId: string, page = 1, limit = 20, open = false) {
+    const offset = Math.max(0, (page - 1) * limit);
+
+    const conditions = [eq(entryEvents.gateId, gateId)];
+    if (open) {
+      conditions.push(eq(entryEvents.direction, 'IN'));
+      conditions.push(sql`not exists (
+        select 1 from entry_events oe
+        where oe.direction = 'OUT'
+          and oe.raw_payload ->> 'originalEntryId' = entry_events.id::text
+      )`);
+    }
+
+    const items = await this.drizzle.db
+      .select(entryEventListColumns)
+      .from(entryEvents)
+      .leftJoin(visitorImages, eq(visitorImages.entryEventId, entryEvents.id))
+      .where(and(...conditions))
+      .orderBy(desc(entryEvents.occurredAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [totalCount] = await this.drizzle.db
+      .select({ count: count() })
+      .from(entryEvents)
+      .where(and(...conditions));
+
+    return {
+      items,
+      total: Number(totalCount?.count || 0),
+      page,
+      limit,
+    };
+  }
+
   async listSocietyEntryEvents(societyId: string, page = 1, limit = 50) {
     const offset = Math.max(0, (page - 1) * limit);
 
     const items = await this.drizzle.db
-      .select()
+      .select(entryEventListColumns)
       .from(entryEvents)
+      .leftJoin(visitorImages, eq(visitorImages.entryEventId, entryEvents.id))
       .where(eq(entryEvents.societyId, societyId))
       .orderBy(desc(entryEvents.occurredAt))
       .limit(limit)
@@ -510,5 +620,54 @@ export class EntryEventsService {
       page,
       limit,
     };
+  }
+
+  /**
+   * Fetches a visitor photo on behalf of a specific requesting user, enforcing that the
+   * caller is actually entitled to see it. The `/entry-events/:id/photo` route has no
+   * unit/society/gate in its URL to scope via RbacScopeGuard, so authorization has to be
+   * resolved from the entry event's own tenancy instead of being skipped entirely.
+   */
+  async getVisitorPhotoForUser(entryEventId: string, user: RequestingUser) {
+    // This route has no unitId/societyId/gateId in its URL for RbacScopeGuard to key
+    // off, so RlsContextInterceptor never opens a tenant-scoped transaction for it —
+    // entry_events/visitor_images are RLS-protected, so without an explicit context this
+    // would just see zero rows. Authorization is fully re-derived below from the entry
+    // event's own tenancy instead, matching what the RLS policy bypass is for.
+    return this.drizzle.withSystemContext(async () => {
+      const [entry] = await this.drizzle.db
+        .select({
+          unitId: entryEvents.unitId,
+          societyId: entryEvents.societyId,
+          gateId: entryEvents.gateId,
+          guardUserId: entryEvents.guardUserId,
+        })
+        .from(entryEvents)
+        .where(eq(entryEvents.id, entryEventId))
+        .limit(1);
+
+      if (!entry) {
+        throw new NotFoundException(`Entry event not found: ${entryEventId}`);
+      }
+
+      const userId = user?.sub || user?.userId || user?.id;
+      const isAuthorized =
+        !!user?.isSuperadmin ||
+        (!!userId && !!entry.guardUserId && entry.guardUserId === userId) ||
+        (!!userId &&
+          !!entry.unitId &&
+          (await this.rbac.assertPermission(userId, 'entry.view', ScopeType.UNIT, entry.unitId))) ||
+        (!!userId &&
+          !!entry.gateId &&
+          (await this.rbac.assertPermission(userId, 'entry.view', ScopeType.GATE, entry.gateId))) ||
+        (!!userId &&
+          (await this.rbac.assertPermission(userId, 'entry.view', ScopeType.SOCIETY, entry.societyId)));
+
+      if (!isAuthorized) {
+        throw new ForbiddenException('You do not have access to this visitor photo');
+      }
+
+      return this.visitorImages.getImage(entryEventId);
+    });
   }
 }

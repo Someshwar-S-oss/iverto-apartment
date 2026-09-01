@@ -7,12 +7,14 @@ import type {
 
 export interface LoginResponse {
   accessToken: string;
+  refreshToken?: string;
   mustChangePassword: boolean;
   user: User;
 }
 
 export interface ChangePasswordResponse {
   accessToken: string;
+  refreshToken?: string;
   message: string;
   user: User;
 }
@@ -47,6 +49,7 @@ export const authApi = {
 
     return {
       accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
       mustChangePassword: Boolean(user.mustChangePassword),
       user,
     };
@@ -73,6 +76,7 @@ export const authApi = {
 
     return {
       accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
       message: data.message || 'Password changed successfully',
       user,
     };
@@ -89,11 +93,11 @@ export const authApi = {
 
   /**
    * Fetches normalized application context list for switcher and route guards.
-   * Transforms raw units and societies into unified AppContext[] list.
+   * Transforms raw units, societies, and gates into a unified AppContext[] list.
    */
   getMyContexts: async (): Promise<AppContext[]> => {
     const response = await apiClient.get<RawUserContextsResponse>('/api/v1/mobile/me/contexts');
-    const { units = [], societies = [] } = response.data || {};
+    const { units = [], societies = [], gates = [] } = response.data || {};
 
     const contexts: AppContext[] = [];
 
@@ -117,29 +121,37 @@ export const authApi = {
       });
     }
 
-    // Map society & guard contexts
+    // Map society-admin contexts. GUARD/GUARD_SUPERVISOR rows are intentionally skipped
+    // here — they surface below as real per-gate contexts from the `gates` array
+    // instead of a fabricated one (this used to stand in `gateId: s.societyId`, a
+    // society id passed off as a gate id, since there was no backing gate concept at
+    // all; that workaround is gone now that gates are a first-class entity).
     for (const s of societies) {
       const isGuard = s.role === 'GUARD' || s.role === 'GUARD_SUPERVISOR';
-      if (isGuard) {
-        contexts.push({
-          type: 'GATE',
-          id: s.societyId,
-          label: `${s.societyName || 'Society'} (${s.role === 'GUARD_SUPERVISOR' ? 'Gate Supervisor' : 'Security Guard'})`,
-          role: s.role,
-          societyId: s.societyId,
-          gateId: s.societyId,
-          societyName: s.societyName,
-        });
-      } else {
-        contexts.push({
-          type: 'SOCIETY',
-          id: s.societyId,
-          label: `${s.societyName || 'Society Admin'} (${s.role.replace(/_/g, ' ')})`,
-          role: s.role,
-          societyId: s.societyId,
-          societyName: s.societyName,
-        });
-      }
+      if (isGuard) continue;
+
+      contexts.push({
+        type: 'SOCIETY',
+        id: s.societyId,
+        label: `${s.societyName || 'Society Admin'} (${s.role.replace(/_/g, ' ')})`,
+        role: s.role,
+        societyId: s.societyId,
+        societyName: s.societyName,
+      });
+    }
+
+    // Map real gate contexts (Guard / Guard Supervisor). One guard may legitimately
+    // hold more than one gate — each is its own switchable context.
+    for (const g of gates) {
+      contexts.push({
+        type: 'GATE',
+        id: g.id,
+        label: `${g.gateName || 'Gate'} — ${g.societyName || 'Society'} (${g.role === 'GUARD_SUPERVISOR' ? 'Gate Supervisor' : 'Security Guard'})`,
+        role: g.role,
+        societyId: g.societyId,
+        gateId: g.gateId,
+        societyName: g.societyName,
+      });
     }
 
     return contexts;
@@ -156,6 +168,15 @@ export const authApi = {
     const payload: RegisterDeviceTokenPayload = { fcmToken, platform };
     const response = await apiClient.post('/api/v1/mobile/me/device-token', payload);
     return response.data;
+  },
+
+  /**
+   * Revokes a refresh token server-side (logout on this device). Best-effort — the
+   * caller should clear local session state regardless of whether this succeeds.
+   * Calls POST /api/v1/auth/logout.
+   */
+  logout: async (refreshToken: string): Promise<void> => {
+    await apiClient.post('/api/v1/auth/logout', { refreshToken });
   },
 };
 

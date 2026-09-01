@@ -31,6 +31,7 @@ import {
   StaffPage as AdminStaffPage,
   GateLogsPage as AdminGateLogsPage,
   DevicesPage as AdminDevicesPage,
+  GatesPage as AdminGatesPage,
   NoticesPage as AdminNoticesPage,
   ComplaintsPage as AdminComplaintsPage,
 } from '../pages/admin';
@@ -114,6 +115,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/admin/staff" element={<AdminStaffPage />} />
         <Route path="/admin/gate-logs" element={<AdminGateLogsPage />} />
         <Route path="/admin/devices" element={<AdminDevicesPage />} />
+        <Route path="/admin/gates" element={<AdminGatesPage />} />
         <Route path="/admin/notices" element={<AdminNoticesPage />} />
         <Route path="/admin/complaints" element={<AdminComplaintsPage />} />
       </Route>

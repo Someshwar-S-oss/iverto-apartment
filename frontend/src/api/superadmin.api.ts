@@ -2,6 +2,7 @@ import apiClient from './client';
 import type {
   Device,
   DeviceVendor,
+  Gate,
   Society,
   SuperadminAnalytics,
 } from './types';
@@ -93,6 +94,20 @@ export const superadminApi = {
     const response = await apiClient.post<Device>(
       '/api/v1/web/superadmin/devices',
       data,
+    );
+    return response.data;
+  },
+
+  /**
+   * List gates defined for a society, so a device can be provisioned against a real
+   * gate instead of a free-typed id. Gates themselves are managed by that society's own
+   * admin (POST/PATCH/DELETE .../web/societies/:societyId/gates) — superadmin only reads
+   * the list here to populate the provisioning form's picker.
+   * Calls GET /api/v1/web/superadmin/societies/:societyId/gates.
+   */
+  getGatesForSociety: async (societyId: string): Promise<Gate[]> => {
+    const response = await apiClient.get<Gate[]>(
+      `/api/v1/web/superadmin/societies/${societyId}/gates`,
     );
     return response.data;
   },

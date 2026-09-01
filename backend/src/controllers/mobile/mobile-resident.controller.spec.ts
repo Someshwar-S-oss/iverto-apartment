@@ -5,6 +5,10 @@ import { DrizzleService } from '../../database/drizzle.service';
 import { ApprovalsService } from '../../modules/approvals/approvals.service';
 import { EntryEventsService } from '../../modules/entry-events/entry-events.service';
 import { StaffService } from '../../modules/staff/staff.service';
+import { NoticesService } from '../../modules/community/notices.service';
+import { ComplaintsService } from '../../modules/community/complaints.service';
+import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.interceptor';
+import { IdempotencyService } from '../../common/idempotency/idempotency.service';
 import { RbacScopeGuard } from '../../modules/rbac/guards/rbac-scope.guard';
 
 describe('MobileResidentController', () => {
@@ -13,6 +17,8 @@ describe('MobileResidentController', () => {
   let mockApprovalsService: any;
   let mockEntryEventsService: any;
   let mockStaffService: any;
+  let mockNoticesService: any;
+  let mockComplaintsService: any;
 
   beforeEach(async () => {
     mockDb = {
@@ -32,8 +38,16 @@ describe('MobileResidentController', () => {
 
     mockStaffService = {
       listStaffByUnit: jest.fn(),
-      assignStaffToUnit: jest.fn(),
-      unassignStaffFromUnit: jest.fn(),
+      listStaffBySociety: jest.fn(),
+    };
+
+    mockNoticesService = {
+      listBySociety: jest.fn(),
+    };
+
+    mockComplaintsService = {
+      listByUnit: jest.fn(),
+      create: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -54,6 +68,23 @@ describe('MobileResidentController', () => {
         {
           provide: StaffService,
           useValue: mockStaffService,
+        },
+        {
+          provide: NoticesService,
+          useValue: mockNoticesService,
+        },
+        {
+          provide: ComplaintsService,
+          useValue: mockComplaintsService,
+        },
+        // These tests call controller methods directly, bypassing the HTTP/interceptor
+        // pipeline entirely — IdempotencyInterceptor is never actually invoked here, but
+        // Nest still needs to resolve it (it's referenced via @UseInterceptors on
+        // decideApproval) to build the module's DI container at compile() time.
+        IdempotencyInterceptor,
+        {
+          provide: IdempotencyService,
+          useValue: { get: jest.fn(), set: jest.fn() },
         },
       ],
     })
@@ -83,7 +114,7 @@ describe('MobileResidentController', () => {
       });
 
       expect(result).toEqual(mockDecided);
-      expect(mockApprovalsService.decideApproval).toHaveBeenCalledWith('app-1', 'user-1', 'APPROVED');
+      expect(mockApprovalsService.decideApproval).toHaveBeenCalledWith('app-1', 'u-1', 'user-1', 'APPROVED');
     });
 
     it('should throw BadRequestException on invalid decision', async () => {
@@ -107,30 +138,84 @@ describe('MobileResidentController', () => {
   });
 
   describe('staff operations', () => {
-    it('should list assigned staff for unit', async () => {
+    it('should list assigned staff for unit (view-only, no assign/unassign methods exposed)', async () => {
       const mockStaff = [{ staffId: 'st-1', name: 'Ramesh' }];
       mockStaffService.listStaffByUnit.mockResolvedValueOnce(mockStaff);
 
       const result = await controller.getStaff('u-1');
       expect(result).toEqual(mockStaff);
       expect(mockStaffService.listStaffByUnit).toHaveBeenCalledWith('u-1');
+
+      // Residents can no longer assign/unassign staff themselves — see rbac.constants.ts
+      // (staff.assign@UNIT removed from OWNER/TENANT); that's a site-admin-only action now.
+      expect((controller as any).assignStaff).toBeUndefined();
+      expect((controller as any).unassignStaff).toBeUndefined();
+    });
+  });
+
+  describe('notices', () => {
+    it('should list society notices for the unit', async () => {
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValueOnce({
+          where: jest.fn().mockReturnValueOnce({
+            limit: jest.fn().mockResolvedValueOnce([{ societyId: 'soc-1' }]),
+          }),
+        }),
+      });
+      const mockNotices = [{ id: 'not-1', title: 'Elevator Maintenance' }];
+      mockNoticesService.listBySociety.mockResolvedValueOnce(mockNotices);
+
+      const result = await controller.getNotices('u-1');
+      expect(result).toEqual(mockNotices);
+      expect(mockNoticesService.listBySociety).toHaveBeenCalledWith('soc-1');
+    });
+  });
+
+  describe('complaints', () => {
+    it('should list complaints for the unit', async () => {
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValueOnce({
+          where: jest.fn().mockReturnValueOnce({
+            limit: jest.fn().mockResolvedValueOnce([{ societyId: 'soc-1' }]),
+          }),
+        }),
+      });
+      const mockComplaints = [{ id: 'cmp-1', title: 'Water leakage' }];
+      mockComplaintsService.listByUnit.mockResolvedValueOnce(mockComplaints);
+
+      const result = await controller.getComplaints('u-1');
+      expect(result).toEqual(mockComplaints);
+      expect(mockComplaintsService.listByUnit).toHaveBeenCalledWith('soc-1', 'u-1');
     });
 
-    it('should assign staff to unit', async () => {
-      const mockAssignment = { id: 'assign-1', staffId: 'st-1', unitId: 'u-1', notify: true };
-      mockStaffService.assignStaffToUnit.mockResolvedValueOnce(mockAssignment);
+    it('should raise a complaint for the unit', async () => {
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValueOnce({
+          where: jest.fn().mockReturnValueOnce({
+            limit: jest.fn().mockResolvedValueOnce([{ societyId: 'soc-1' }]),
+          }),
+        }),
+      });
+      const mockCreated = { id: 'cmp-1', title: 'Water leakage', unitId: 'u-1' };
+      mockComplaintsService.create.mockResolvedValueOnce(mockCreated);
 
-      const result = await controller.assignStaff('u-1', { staffId: 'st-1', notify: true });
-      expect(result).toEqual(mockAssignment);
-      expect(mockStaffService.assignStaffToUnit).toHaveBeenCalledWith('st-1', 'u-1', true);
+      const result = await controller.raiseComplaint('u-1', 'user-1', {
+        title: 'Water leakage',
+        description: 'Leaking under the sink',
+      });
+
+      expect(result).toEqual(mockCreated);
+      expect(mockComplaintsService.create).toHaveBeenCalledWith('soc-1', 'u-1', 'user-1', {
+        title: 'Water leakage',
+        description: 'Leaking under the sink',
+        unitId: 'u-1',
+      });
     });
 
-    it('should unassign staff from unit', async () => {
-      mockStaffService.unassignStaffFromUnit.mockResolvedValueOnce([{ id: 'assign-1' }]);
-
-      const result = await controller.unassignStaff('u-1', 'st-1');
-      expect(result).toEqual([{ id: 'assign-1' }]);
-      expect(mockStaffService.unassignStaffFromUnit).toHaveBeenCalledWith('st-1', 'u-1');
+    it('should throw BadRequestException when raising a complaint without title/description', async () => {
+      await expect(
+        controller.raiseComplaint('u-1', 'user-1', { title: '', description: '' } as any),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

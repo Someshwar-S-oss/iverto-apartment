@@ -9,13 +9,14 @@ import {
   Filter,
   Edit2,
   Radio,
+  Home,
 } from 'lucide-react';
 import {
   societyAdminApi,
   CreateStaffPayload,
   UpdateStaffPayload,
 } from '../../api/society-admin.api';
-import type { Staff, StaffType, StaffStatus } from '../../api/types';
+import type { Staff, StaffType, StaffStatus, Unit } from '../../api/types';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
@@ -61,6 +62,14 @@ export const StaffPage: React.FC = () => {
     status: 'ACTIVE',
   });
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
+
+  // Assign-to-flat controls, shown inside the edit modal. Site-admin-only action —
+  // residents can no longer self-assign staff (see rbac.constants.ts).
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [unitToAssign, setUnitToAssign] = useState<string>('');
+  const [assignNotify, setAssignNotify] = useState<boolean>(true);
+  const [isAssigningUnit, setIsAssigningUnit] = useState<boolean>(false);
+  const [isUnassigningUnit, setIsUnassigningUnit] = useState<boolean>(false);
 
   // Check URL query param ?action=register
   useEffect(() => {
@@ -138,7 +147,7 @@ export const StaffPage: React.FC = () => {
   };
 
   // Open Edit / Pair M50 modal
-  const openEditModal = (st: Staff) => {
+  const openEditModal = async (st: Staff) => {
     setSelectedStaffToEdit(st);
     setEditForm({
       name: st.name,
@@ -147,6 +156,57 @@ export const StaffPage: React.FC = () => {
       facePersonRef: st.facePersonRef || '',
       status: st.status,
     });
+    setUnitToAssign('');
+
+    if (societyId && units.length === 0) {
+      try {
+        const unitList = await societyAdminApi.getUnits(societyId);
+        setUnits(unitList || []);
+      } catch (err) {
+        console.error('Failed to load units for staff assignment:', err);
+      }
+    }
+  };
+
+  // Handle Assign Staff to a Flat (site-admin-only)
+  const handleAssignToUnit = async () => {
+    if (!societyId || !selectedStaffToEdit || !unitToAssign) return;
+
+    setIsAssigningUnit(true);
+    try {
+      await societyAdminApi.assignStaffToUnit(
+        societyId,
+        selectedStaffToEdit.id,
+        unitToAssign,
+        assignNotify,
+      );
+      const unit = units.find((u) => u.id === unitToAssign);
+      toastSuccess(
+        `${selectedStaffToEdit.name} assigned to Flat ${unit?.unitNumber || unitToAssign}.`,
+      );
+    } catch (err: any) {
+      toastError(err.response?.data?.message || 'Failed to assign staff to flat.');
+    } finally {
+      setIsAssigningUnit(false);
+    }
+  };
+
+  // Handle Unassign Staff from a Flat (site-admin-only)
+  const handleUnassignFromUnit = async () => {
+    if (!societyId || !selectedStaffToEdit || !unitToAssign) return;
+
+    setIsUnassigningUnit(true);
+    try {
+      await societyAdminApi.unassignStaffFromUnit(societyId, selectedStaffToEdit.id, unitToAssign);
+      const unit = units.find((u) => u.id === unitToAssign);
+      toastSuccess(
+        `${selectedStaffToEdit.name} unassigned from Flat ${unit?.unitNumber || unitToAssign}.`,
+      );
+    } catch (err: any) {
+      toastError(err.response?.data?.message || 'Failed to unassign staff from flat.');
+    } finally {
+      setIsUnassigningUnit(false);
+    }
   };
 
   // Handle Update Staff / M50 Face ID
@@ -609,6 +669,57 @@ export const StaffPage: React.FC = () => {
             />
             <p className="text-[11px] text-indigo-700">
               Synchronizes face vector identification with all gate boom barriers.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-pink-50/60 border border-pink-200 space-y-2">
+            <label className="form-label text-[#cd0447] flex items-center gap-1.5">
+              <Home className="w-4 h-4" />
+              <span>Assign / Unassign Flat</span>
+            </label>
+            <select
+              value={unitToAssign}
+              onChange={(e) => setUnitToAssign(e.target.value)}
+              className="input-base w-full cursor-pointer bg-white"
+            >
+              <option value="">Select a flat...</option>
+              {units.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.unitNumber}
+                  {u.buildingName ? ` — ${u.buildingName}` : ''}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={assignNotify}
+                onChange={(e) => setAssignNotify(e.target.checked)}
+                className="rounded border-gray-300 text-[#cd0447] focus:ring-[#cd0447]"
+              />
+              <span>Notify resident on gate entry</span>
+            </label>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleAssignToUnit}
+                disabled={!unitToAssign || isAssigningUnit}
+                className="btn-secondary !text-xs !py-1.5 !px-3"
+              >
+                {isAssigningUnit ? 'Assigning...' : 'Assign to Flat'}
+              </button>
+              <button
+                type="button"
+                onClick={handleUnassignFromUnit}
+                disabled={!unitToAssign || isUnassigningUnit}
+                className="btn-secondary !text-xs !py-1.5 !px-3 !text-rose-600"
+              >
+                {isUnassigningUnit ? 'Removing...' : 'Unassign from Flat'}
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-500">
+              Residents can no longer self-assign staff — this is the only way to link a
+              helper to a flat.
             </p>
           </div>
 

@@ -11,13 +11,14 @@ import {
   Phone,
   CheckCircle2,
   Filter,
+  DoorOpen,
 } from 'lucide-react';
 import {
   societyAdminApi,
   CreateSocietyUserPayload,
   CreateSocietyUserResponse,
 } from '../../api/society-admin.api';
-import type { Unit } from '../../api/types';
+import type { Gate, Unit } from '../../api/types';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
@@ -37,6 +38,8 @@ export interface SocietyUserRosterItem {
   isPrimary?: boolean;
   status?: string;
   createdAt?: string;
+  gateId?: string | null;
+  gateName?: string | null;
 }
 
 export const UsersPage: React.FC = () => {
@@ -50,6 +53,7 @@ export const UsersPage: React.FC = () => {
     '';
 
   const [units, setUnits] = useState<Unit[]>([]);
+  const [gates, setGates] = useState<Gate[]>([]);
   const [roster, setRoster] = useState<SocietyUserRosterItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -65,8 +69,14 @@ export const UsersPage: React.FC = () => {
     role: 'OWNER',
     unitId: '',
     isPrimary: true,
+    gateId: '',
   });
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Inline gate reassignment for an existing guard/supervisor row
+  const [reassigningGuard, setReassigningGuard] = useState<SocietyUserRosterItem | null>(null);
+  const [reassignGateId, setReassignGateId] = useState<string>('');
+  const [isReassigning, setIsReassigning] = useState<boolean>(false);
 
   // Credentials Popup Modal
   const [createdCredentials, setCreatedCredentials] = useState<CreateSocietyUserResponse | null>(null);
@@ -94,12 +104,14 @@ export const UsersPage: React.FC = () => {
       }
 
       try {
-        const [unitsData, usersData] = await Promise.all([
+        const [unitsData, usersData, gatesData] = await Promise.all([
           societyAdminApi.getUnits(societyId).catch(() => []),
           societyAdminApi.getUsers(societyId).catch(() => []),
+          societyAdminApi.getGates(societyId).catch(() => []),
         ]);
         setUnits(unitsData);
         setRoster(usersData);
+        setGates(gatesData);
       } catch (err: any) {
         const msg =
           err?.response?.data?.message ||
@@ -122,6 +134,10 @@ export const UsersPage: React.FC = () => {
     return ['OWNER', 'TENANT', 'FAMILY'].includes(formData.role);
   }, [formData.role]);
 
+  const isGuardRole = useMemo(() => {
+    return formData.role === 'GUARD' || formData.role === 'GUARD_SUPERVISOR';
+  }, [formData.role]);
+
   // Handle Provision User submit
   const handleProvisionUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,6 +157,7 @@ export const UsersPage: React.FC = () => {
         role: formData.role,
         unitId: isResidentRole ? formData.unitId : undefined,
         isPrimary: isResidentRole ? formData.isPrimary : undefined,
+        gateId: isGuardRole ? formData.gateId || null : undefined,
       });
 
       // Reload live roster from database
@@ -165,6 +182,7 @@ export const UsersPage: React.FC = () => {
         role: 'OWNER',
         unitId: '',
         isPrimary: true,
+        gateId: '',
       });
     } catch (err: any) {
       const msg =
@@ -174,6 +192,37 @@ export const UsersPage: React.FC = () => {
       toastError(msg);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Open the inline gate-reassignment control for a guard/supervisor row
+  const openReassignGate = (item: SocietyUserRosterItem) => {
+    setReassigningGuard(item);
+    setReassignGateId(item.gateId || '');
+  };
+
+  // Handle Reassign Guard Gate
+  const handleReassignGate = async () => {
+    if (!societyId || !reassigningGuard) return;
+
+    setIsReassigning(true);
+    try {
+      await societyAdminApi.assignGuardGate(societyId, reassigningGuard.id, reassignGateId || null);
+      toastSuccess(
+        reassignGateId
+          ? `${reassigningGuard.name} reassigned to a specific gate.`
+          : `${reassigningGuard.name} is now unrestricted (every gate in this society).`,
+      );
+      setReassigningGuard(null);
+      await loadData(true);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to reassign gate.';
+      toastError(msg);
+    } finally {
+      setIsReassigning(false);
     }
   };
 
@@ -403,8 +452,18 @@ export const UsersPage: React.FC = () => {
                             </span>
                           )}
                         </div>
+                      ) : ['GUARD', 'GUARD_SUPERVISOR'].includes(item.role) ? (
+                        <button
+                          type="button"
+                          onClick={() => openReassignGate(item)}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-900 cursor-pointer"
+                          title="Reassign gate"
+                        >
+                          <DoorOpen className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>{item.gateName || 'Unrestricted (all gates)'}</span>
+                        </button>
                       ) : (
-                        <span className="text-xs text-gray-400 font-medium">Platform / Gate</span>
+                        <span className="text-xs text-gray-400 font-medium">Platform</span>
                       )}
                     </td>
                     <td className="text-xs text-gray-500">
@@ -552,6 +611,32 @@ export const UsersPage: React.FC = () => {
             </div>
           )}
 
+          {/* Gate selector if guard/supervisor */}
+          {isGuardRole && (
+            <div className="p-4 rounded-xl bg-indigo-50/50 border border-indigo-100 space-y-2">
+              <label className="form-label text-indigo-900 flex items-center gap-1.5">
+                <DoorOpen className="w-4 h-4 text-indigo-600" />
+                <span>Restrict to a Gate (Optional)</span>
+              </label>
+              <select
+                value={formData.gateId || ''}
+                onChange={(e) => setFormData({ ...formData, gateId: e.target.value })}
+                className="input-base w-full cursor-pointer bg-white"
+              >
+                <option value="">Unrestricted — every gate in this society</option>
+                {gates.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-indigo-700">
+                Leave unrestricted for a supervisor overseeing the whole society. Manage
+                gates from the Gates page.
+              </p>
+            </div>
+          )}
+
           <div className="modal-footer pt-4">
             <button
               type="button"
@@ -639,6 +724,63 @@ export const UsersPage: React.FC = () => {
                   <Copy className="w-4 h-4" />
                   <span>Copy Credentials</span>
                 </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Reassign Guard Gate */}
+      <Modal
+        isOpen={Boolean(reassigningGuard)}
+        onClose={() => setReassigningGuard(null)}
+        title={
+          <div>
+            <div className="font-bold text-gray-900">
+              Reassign Gate: {reassigningGuard?.name || ''}
+            </div>
+            <div className="text-xs text-gray-500 font-normal mt-0.5">
+              Restrict this {reassigningGuard?.role === 'GUARD_SUPERVISOR' ? 'supervisor' : 'guard'} to one gate, or leave unrestricted
+            </div>
+          </div>
+        }
+        size="sm"
+      >
+        <div className="space-y-4">
+          <select
+            value={reassignGateId}
+            onChange={(e) => setReassignGateId(e.target.value)}
+            className="input-base w-full cursor-pointer"
+          >
+            <option value="">Unrestricted — every gate in this society</option>
+            {gates.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="modal-footer pt-2">
+            <button
+              type="button"
+              onClick={() => setReassigningGuard(null)}
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleReassignGate}
+              disabled={isReassigning}
+              className="btn-primary flex items-center gap-2"
+            >
+              {isReassigning ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <span>Save Assignment</span>
               )}
             </button>
           </div>

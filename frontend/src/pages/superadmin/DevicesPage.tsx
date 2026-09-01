@@ -14,7 +14,7 @@ import {
   DoorOpen,
 } from 'lucide-react';
 import { superadminApi, ProvisionDevicePayload } from '../../api/superadmin.api';
-import type { Device, DeviceVendor, Society } from '../../api/types';
+import type { Device, DeviceVendor, Gate, Society } from '../../api/types';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Badge, BadgeVariant } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
@@ -65,6 +65,7 @@ export const DevicesPage: React.FC = () => {
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [societies, setSocieties] = useState<Society[]>([]);
+  const [societyGates, setSocietyGates] = useState<Gate[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -135,6 +136,26 @@ export const DevicesPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Refresh the gate picker whenever the target society changes
+  useEffect(() => {
+    if (!formData.societyId) {
+      setSocietyGates([]);
+      return;
+    }
+    let cancelled = false;
+    superadminApi
+      .getGatesForSociety(formData.societyId)
+      .then((data) => {
+        if (!cancelled) setSocietyGates(data || []);
+      })
+      .catch(() => {
+        if (!cancelled) setSocietyGates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [formData.societyId]);
 
   // Map societyId to Society name
   const societyMap = useMemo(() => {
@@ -254,7 +275,7 @@ export const DevicesPage: React.FC = () => {
         const matchSerial = dev.serialNo.toLowerCase().includes(q);
         const matchVendor = dev.vendor.toLowerCase().includes(q);
         const matchName = dev.name ? dev.name.toLowerCase().includes(q) : false;
-        const matchGate = dev.gateId ? dev.gateId.toLowerCase().includes(q) : false;
+        const matchGate = dev.gateName ? dev.gateName.toLowerCase().includes(q) : false;
         const soc = societyMap.get(dev.societyId);
         const matchSocName = soc ? soc.name.toLowerCase().includes(q) : false;
         const matchSocId = dev.societyId.toLowerCase().includes(q);
@@ -402,7 +423,7 @@ export const DevicesPage: React.FC = () => {
                 <tr>
                   <th>Terminal Serial Number</th>
                   <th>Vendor & Model</th>
-                  <th>Gate ID / Assignment</th>
+                  <th>Gate Assignment</th>
                   <th>Assigned Society</th>
                   <th>Telemetry Status</th>
                   <th>Last Heartbeat</th>
@@ -460,7 +481,7 @@ export const DevicesPage: React.FC = () => {
                       <td className="text-xs text-gray-700">
                         <div className="flex items-center gap-1.5 font-medium">
                           <DoorOpen className="w-3.5 h-3.5 text-gray-400" />
-                          <span>{device.gateId || 'Main Community Gate'}</span>
+                          <span>{device.gateName || 'No gate assigned'}</span>
                         </div>
                       </td>
 
@@ -616,7 +637,7 @@ export const DevicesPage: React.FC = () => {
               <select
                 value={formData.societyId}
                 onChange={(e) => {
-                  setFormData({ ...formData, societyId: e.target.value });
+                  setFormData({ ...formData, societyId: e.target.value, gateId: '' });
                   if (formErrors.societyId) setFormErrors({ ...formErrors, societyId: '' });
                 }}
                 disabled={isSubmitting || societies.length === 0}
@@ -635,20 +656,31 @@ export const DevicesPage: React.FC = () => {
               {formErrors.societyId && <p className="field-error">{formErrors.societyId}</p>}
             </div>
 
-            {/* Gate ID / Gate Name */}
+            {/* Gate Assignment */}
             <div>
-              <label className="field-label">Gate Assignment / ID</label>
+              <label className="field-label">Gate Assignment (Optional)</label>
               <div className="relative">
-                <DoorOpen className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
+                <DoorOpen className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none z-10" />
+                <select
                   value={formData.gateId || ''}
                   onChange={(e) => setFormData({ ...formData, gateId: e.target.value })}
-                  placeholder="e.g. Gate 1 (Inbound Tower A)"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !formData.societyId}
                   className="field !pl-10"
-                />
+                >
+                  <option value="">No gate assigned</option>
+                  {societyGates.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
               </div>
+              {formData.societyId && societyGates.length === 0 && (
+                <p className="field-hint">
+                  This society hasn't defined any gates yet — its admin can add one from
+                  the web app's Gates page.
+                </p>
+              )}
             </div>
 
             {/* Friendly Device Name */}

@@ -8,6 +8,9 @@ import { DrizzleService } from '../../database/drizzle.service';
 import { EntryEventsService } from '../../modules/entry-events/entry-events.service';
 import { ApprovalsService } from '../../modules/approvals/approvals.service';
 import { VisitorImagesService } from '../../modules/media/visitor-images.service';
+import { StaffService } from '../../modules/staff/staff.service';
+import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.interceptor';
+import { IdempotencyService } from '../../common/idempotency/idempotency.service';
 import { RbacScopeGuard } from '../../modules/rbac/guards/rbac-scope.guard';
 
 describe('MobileGuardController', () => {
@@ -16,6 +19,7 @@ describe('MobileGuardController', () => {
   let mockEntryEventsService: any;
   let mockApprovalsService: any;
   let mockVisitorImagesService: any;
+  let mockStaffService: any;
 
   beforeEach(async () => {
     mockDb = {
@@ -28,6 +32,7 @@ describe('MobileGuardController', () => {
       createGuardEntry: jest.fn(),
       verifyPasscode: jest.fn(),
       markExit: jest.fn(),
+      listGateEntryEvents: jest.fn(),
     };
 
     mockApprovalsService = {
@@ -36,6 +41,10 @@ describe('MobileGuardController', () => {
 
     mockVisitorImagesService = {
       getImage: jest.fn(),
+    };
+
+    mockStaffService = {
+      listStaffBySociety: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -56,6 +65,20 @@ describe('MobileGuardController', () => {
         {
           provide: VisitorImagesService,
           useValue: mockVisitorImagesService,
+        },
+        {
+          provide: StaffService,
+          useValue: mockStaffService,
+        },
+        // These tests call controller methods directly, bypassing the HTTP/interceptor
+        // pipeline entirely — IdempotencyInterceptor is never actually invoked here, but
+        // Nest still needs to resolve it (referenced via @UseInterceptors on
+        // createEntry/verifyPasscode/markExit) to build the module's DI container at
+        // compile() time.
+        IdempotencyInterceptor,
+        {
+          provide: IdempotencyService,
+          useValue: { get: jest.fn(), set: jest.fn() },
         },
       ],
     })
@@ -193,19 +216,48 @@ describe('MobileGuardController', () => {
   });
 
   describe('markExit', () => {
-    it('should call entryEventsService.markExit', async () => {
+    it('should resolve the gate societyId and call entryEventsService.markExit scoped to it', async () => {
+      // Resolve societyId from gate device
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValueOnce({
+          where: jest.fn().mockReturnValueOnce({
+            limit: jest.fn().mockResolvedValueOnce([{ societyId: 'soc-1' }]),
+          }),
+        }),
+      });
+
       const mockExit = { id: 'evt-exit-1', direction: 'OUT' };
       mockEntryEventsService.markExit.mockResolvedValueOnce(mockExit);
 
       const result = await controller.markExit('gate-1', 'evt-1', 'guard-1');
       expect(result).toEqual(mockExit);
-      expect(mockEntryEventsService.markExit).toHaveBeenCalledWith('evt-1', 'guard-1');
+      expect(mockEntryEventsService.markExit).toHaveBeenCalledWith('evt-1', 'soc-1', 'guard-1');
+    });
+  });
+
+  describe('getGateEntryEvents', () => {
+    it('should list paginated gate entry events with defaults', async () => {
+      const mockResult = { items: [{ id: 'entry-1' }], total: 1, page: 1, limit: 20 };
+      mockEntryEventsService.listGateEntryEvents.mockResolvedValueOnce(mockResult);
+
+      const result = await controller.getGateEntryEvents('gate-1', undefined, undefined, undefined);
+      expect(result).toEqual(mockResult);
+      expect(mockEntryEventsService.listGateEntryEvents).toHaveBeenCalledWith('gate-1', 1, 20, false);
+    });
+
+    it('should parse page/limit and forward open=true', async () => {
+      const mockResult = { items: [], total: 0, page: 2, limit: 10 };
+      mockEntryEventsService.listGateEntryEvents.mockResolvedValueOnce(mockResult);
+
+      const result = await controller.getGateEntryEvents('gate-1', '2', '10', 'true');
+      expect(result).toEqual(mockResult);
+      expect(mockEntryEventsService.listGateEntryEvents).toHaveBeenCalledWith('gate-1', 2, 10, true);
     });
   });
 
   describe('pending approvals', () => {
     it('should list pending approvals for gate fallback polling', async () => {
-      const mockPending = [{ approval: { id: 'app-1' } }];
+      const mockPending = [{ id: 'app-1', unitNumber: 'A-402', hasPhoto: false }];
       mockApprovalsService.listPendingByGate.mockResolvedValueOnce(mockPending);
 
       const result = await controller.getPendingApprovals('gate-1');
@@ -217,19 +269,19 @@ describe('MobileGuardController', () => {
 
 describe('MobileEntryEventsController (Photo Streaming)', () => {
   let photoController: MobileEntryEventsController;
-  let mockVisitorImagesService: any;
+  let mockEntryEventsService: any;
 
   beforeEach(async () => {
-    mockVisitorImagesService = {
-      getImage: jest.fn(),
+    mockEntryEventsService = {
+      getVisitorPhotoForUser: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [MobileEntryEventsController],
       providers: [
         {
-          provide: VisitorImagesService,
-          useValue: mockVisitorImagesService,
+          provide: EntryEventsService,
+          useValue: mockEntryEventsService,
         },
       ],
     }).compile();
@@ -239,9 +291,9 @@ describe('MobileEntryEventsController (Photo Streaming)', () => {
     );
   });
 
-  it('should stream image bytes with proper content type header', async () => {
+  it('should stream image bytes with proper content type header, scoped to the requesting user', async () => {
     const imageBytes = Buffer.from('fake-image-bytes');
-    mockVisitorImagesService.getImage.mockResolvedValueOnce({
+    mockEntryEventsService.getVisitorPhotoForUser.mockResolvedValueOnce({
       id: 'img-1',
       entryEventId: 'evt-1',
       imageBytes,
@@ -253,9 +305,14 @@ describe('MobileEntryEventsController (Photo Streaming)', () => {
       setHeader: jest.fn(),
       end: jest.fn(),
     } as any;
+    const requestingUser = { sub: 'user-1' };
 
-    await photoController.streamVisitorPhoto('evt-1', mockRes);
+    await photoController.streamVisitorPhoto('evt-1', requestingUser, mockRes);
 
+    expect(mockEntryEventsService.getVisitorPhotoForUser).toHaveBeenCalledWith(
+      'evt-1',
+      requestingUser,
+    );
     expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
     expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Length', imageBytes.length.toString());
     expect(mockRes.end).toHaveBeenCalledWith(imageBytes);

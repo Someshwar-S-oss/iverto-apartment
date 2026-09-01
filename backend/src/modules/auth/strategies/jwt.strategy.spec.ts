@@ -22,9 +22,12 @@ describe('JwtStrategy', () => {
 
     const result = await strategy.validate(payload);
 
+    // `sub` is preserved (in addition to id/userId) because CurrentUser('sub') and
+    // several controllers/guards read `user.sub` directly off the request.
     expect(result).toEqual({
       id: 'u-123',
       userId: 'u-123',
+      sub: 'u-123',
       email: 'test@example.com',
       isSuperadmin: true,
       mustChangePassword: false,

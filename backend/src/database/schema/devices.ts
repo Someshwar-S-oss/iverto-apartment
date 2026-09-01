@@ -1,11 +1,16 @@
 import { pgTable, uuid, varchar, integer, timestamp } from 'drizzle-orm/pg-core';
 import { societies } from './societies';
+import { gates } from './gates';
 import { deviceVendorEnum } from './enums';
 
 export const devices = pgTable('devices', {
   id: uuid('id').defaultRandom().primaryKey(),
   societyId: uuid('society_id').references(() => societies.id, { onDelete: 'cascade' }).notNull(),
-  gateId: uuid('gate_id'),
+  // Was a bare uuid with no backing row — now a real FK into `gates`. The migration that
+  // adds this constraint backfills a `gates` row for every distinct gate_id already in
+  // use before the FK is added, so existing device-to-gate associations survive
+  // untouched (see the hand-added INSERT in that migration's SQL).
+  gateId: uuid('gate_id').references(() => gates.id, { onDelete: 'set null' }),
   vendor: deviceVendorEnum('vendor').default('M50').notNull(),
   serialNo: varchar('serial_no', { length: 128 }).notNull().unique(),
   name: varchar('name', { length: 128 }),

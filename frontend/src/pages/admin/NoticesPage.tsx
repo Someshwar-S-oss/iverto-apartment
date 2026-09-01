@@ -98,13 +98,12 @@ export const NoticesPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
+      // authorName/authorRole are derived server-side from the authenticated caller.
       const created = await societyAdminApi.createNotice(societyId, {
         title: formTitle.trim(),
         body: formBody.trim(),
         category: formCategory,
         isPinned: formIsPinned,
-        authorName: activeContext?.label || 'Society Admin',
-        authorRole: 'SOCIETY_ADMIN',
       });
 
       toastSuccess(`Notice "${created.title}" published to community board.`);

@@ -1,14 +1,25 @@
 import apiClient from './client';
 import type {
   Approval,
+  Complaint,
+  ComplaintCategory,
+  ComplaintPriority,
   DeliveryMode,
   DeliveryPermission,
   DeliveryPlatform,
   EntryEvent,
+  Notice,
   PaginatedResult,
   Passcode,
   Staff,
 } from './types';
+
+export interface CreateComplaintPayload {
+  title: string;
+  description: string;
+  category?: ComplaintCategory;
+  priority?: ComplaintPriority;
+}
 
 export interface CreatePasscodePayload {
   code?: string;
@@ -97,42 +108,38 @@ export const residentApi = {
   },
 
   /**
-   * Get all active verified domestic staff in the unit's society for flat assignment.
-   * Calls GET /api/v1/mobile/units/:unitId/society-staff.
+   * Get society notices/announcements visible to this unit.
+   * Calls GET /api/v1/mobile/units/:unitId/notices.
    */
-  getAvailableSocietyStaff: async (unitId: string): Promise<Staff[]> => {
-    const response = await apiClient.get<Staff[]>(
-      `/api/v1/mobile/units/${unitId}/society-staff`,
+  getNotices: async (unitId: string): Promise<Notice[]> => {
+    const response = await apiClient.get<Notice[]>(
+      `/api/v1/mobile/units/${unitId}/notices`,
     );
     return response.data;
   },
 
   /**
-   * Assign a society staff member to this residential unit.
-   * Calls POST /api/v1/mobile/units/:unitId/staff.
+   * Get complaints/helpdesk tickets raised from this unit.
+   * Calls GET /api/v1/mobile/units/:unitId/complaints.
    */
-  assignStaff: async (
-    unitId: string,
-    staffId: string,
-    notify: boolean = true,
-  ): Promise<any> => {
-    const response = await apiClient.post(
-      `/api/v1/mobile/units/${unitId}/staff`,
-      { staffId, notify },
+  getComplaints: async (unitId: string): Promise<Complaint[]> => {
+    const response = await apiClient.get<Complaint[]>(
+      `/api/v1/mobile/units/${unitId}/complaints`,
     );
     return response.data;
   },
 
   /**
-   * Unassign a staff member from this unit.
-   * Calls DELETE /api/v1/mobile/units/:unitId/staff/:staffId.
+   * Raise a new helpdesk complaint for this unit.
+   * Calls POST /api/v1/mobile/units/:unitId/complaints.
    */
-  unassignStaff: async (
+  createComplaint: async (
     unitId: string,
-    staffId: string,
-  ): Promise<{ success: boolean; message?: string }> => {
-    const response = await apiClient.delete(
-      `/api/v1/mobile/units/${unitId}/staff/${staffId}`,
+    data: CreateComplaintPayload,
+  ): Promise<Complaint> => {
+    const response = await apiClient.post<Complaint>(
+      `/api/v1/mobile/units/${unitId}/complaints`,
+      data,
     );
     return response.data;
   },

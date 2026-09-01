@@ -111,6 +111,7 @@ describe('M50 Ingest & Simulator Protocol E2E Suite', () => {
           }),
         }),
       },
+      withTenantContext: async (_ctx: any, cb: any) => cb(),
     };
 
     const mockConfig = {

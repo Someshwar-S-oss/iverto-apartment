@@ -66,9 +66,23 @@ export interface SocietyRoleContext {
   societyName?: string;
 }
 
+export interface GateRoleContext {
+  // Composite id (`${societyRoleId}:${gateId}`) — see backend rbac.service.ts's
+  // GateContext doc comment for why it isn't just the bare role-row id: one
+  // society-wide guard/supervisor role expands into one context per gate the society
+  // has, so a single role row can produce several of these.
+  id: string;
+  gateId: string;
+  gateName?: string;
+  societyId: string;
+  societyName?: string;
+  role: SocietyRole | string;
+}
+
 export interface RawUserContextsResponse {
   units: UnitMembershipContext[];
   societies: SocietyRoleContext[];
+  gates: GateRoleContext[];
 }
 
 export interface Society {
@@ -85,6 +99,7 @@ export interface Device {
   id: string;
   societyId: string;
   gateId?: string | null;
+  gateName?: string | null;
   vendor: DeviceVendor;
   serialNo: string;
   name?: string | null;
@@ -93,6 +108,14 @@ export interface Device {
   lastSeenAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface Gate {
+  id: string;
+  societyId: string;
+  name: string;
+  description?: string | null;
+  createdAt?: string;
 }
 
 export interface SuperadminAnalytics {

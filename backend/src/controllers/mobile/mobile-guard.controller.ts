@@ -6,11 +6,14 @@ import {
   Query,
   Body,
   UseGuards,
+  UseInterceptors,
   Res,
+  HttpCode,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { eq, or, and, isNull, gt } from 'drizzle-orm';
 import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import { PasswordChangeGuard } from '../../modules/auth/guards/password-change.guard';
@@ -24,6 +27,7 @@ import { EntryEventsService } from '../../modules/entry-events/entry-events.serv
 import { ApprovalsService } from '../../modules/approvals/approvals.service';
 import { VisitorImagesService } from '../../modules/media/visitor-images.service';
 import { StaffService } from '../../modules/staff/staff.service';
+import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.interceptor';
 
 export interface CreateGuardEntryBody {
   unitId?: string;
@@ -158,6 +162,7 @@ export class MobileGuardController {
   }
 
   @Post('entry-events')
+  @UseInterceptors(IdempotencyInterceptor)
   @RequirePermission('entry.create', ScopeType.GATE)
   async createEntry(
     @Param('gateId') gateId: string,
@@ -194,7 +199,12 @@ export class MobileGuardController {
   }
 
   @Post('passcodes/verify')
+  @HttpCode(200) // a verdict, not a creation — 200 for both {verified: true} and {verified: false, reason}
+  @UseInterceptors(IdempotencyInterceptor)
   @RequirePermission('passcode.verify', ScopeType.GATE)
+  // A 6-digit code has only 1e6 combinations; without a tight throttle here it's
+  // brute-forceable well before maxUses/expiry would stop an attacker.
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   async verifyPasscode(
     @Param('gateId') gateId: string,
     @CurrentUser('sub') guardUserId: string,
@@ -221,14 +231,32 @@ export class MobileGuardController {
     );
   }
 
+  @Get('entry-events')
+  @RequirePermission('entry.view', ScopeType.GATE)
+  async getGateEntryEvents(
+    @Param('gateId') gateId: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('open') open?: string,
+  ) {
+    return this.entryEventsService.listGateEntryEvents(
+      gateId,
+      parseInt(page, 10) || 1,
+      parseInt(limit, 10) || 20,
+      open === 'true',
+    );
+  }
+
   @Post('entry-events/:id/exit')
+  @UseInterceptors(IdempotencyInterceptor)
   @RequirePermission('entry.create', ScopeType.GATE)
   async markExit(
-    @Param('gateId') _gateId: string,
+    @Param('gateId') gateId: string,
     @Param('id') entryEventId: string,
     @CurrentUser('sub') guardUserId: string,
   ) {
-    return this.entryEventsService.markExit(entryEventId, guardUserId);
+    const societyId = await this.getSocietyIdForGate(gateId);
+    return this.entryEventsService.markExit(entryEventId, societyId, guardUserId);
   }
 
   @Get('staff')
@@ -251,14 +279,18 @@ export class MobileGuardController {
 @Controller('api/v1/mobile/entry-events')
 @UseGuards(JwtAuthGuard, PasswordChangeGuard)
 export class MobileEntryEventsController {
-  constructor(private readonly visitorImagesService: VisitorImagesService) {}
+  constructor(private readonly entryEventsService: EntryEventsService) {}
 
   @Get(':id/photo')
   async streamVisitorPhoto(
     @Param('id') entryEventId: string,
+    @CurrentUser() user: any,
     @Res() res: Response,
   ) {
-    const image = await this.visitorImagesService.getImage(entryEventId);
+    // Authorization is resolved from the entry event's own unit/gate/society tenancy,
+    // since this route (deliberately) has no unitId/societyId/gateId in its URL for
+    // RbacScopeGuard to key off — see EntryEventsService.getVisitorPhotoForUser.
+    const image = await this.entryEventsService.getVisitorPhotoForUser(entryEventId, user);
 
     res.setHeader('Content-Type', image.mimeType || 'image/jpeg');
     if (image.sizeBytes) {

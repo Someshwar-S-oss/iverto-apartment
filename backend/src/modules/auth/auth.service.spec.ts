@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { DrizzleService } from '../../database/drizzle.service';
@@ -23,14 +24,28 @@ describe('AuthService', () => {
     sign: jest.fn((payload) => `mock_jwt_token_${payload.sub}`),
   };
 
+  const mockConfigService = {
+    get: jest.fn().mockReturnValue(undefined),
+  };
+
+  // issueRefreshToken (called by login/changePassword) always does one insert — give it
+  // a harmless default so tests that don't care about the refresh token itself don't
+  // each need to wire this up individually.
+  const mockDefaultInsert = () =>
+    mockDb.insert.mockReturnValue({
+      values: jest.fn().mockResolvedValue(undefined),
+    });
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockDefaultInsert();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: DrizzleService, useValue: mockDrizzleService },
         { provide: JwtService, useValue: mockJwtService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
@@ -83,6 +98,8 @@ describe('AuthService', () => {
 
       expect(result).toBeDefined();
       expect(result.accessToken).toBe('mock_jwt_token_u-123');
+      expect(typeof result.refreshToken).toBe('string');
+      expect(result.refreshToken.length).toBeGreaterThan(0);
       expect(result.user.id).toBe('u-123');
       expect(result.user.email).toBe('user@example.com');
       expect(result.user.mustChangePassword).toBe(true);
@@ -200,6 +217,7 @@ describe('AuthService', () => {
       expect(result).toBeDefined();
       expect(result.message).toBe('Password changed successfully');
       expect(result.accessToken).toBe('mock_jwt_token_u-123');
+      expect(typeof result.refreshToken).toBe('string');
       expect(result.user.mustChangePassword).toBe(false);
       expect(mockDb.update).toHaveBeenCalled();
       expect(mockJwtService.sign).toHaveBeenCalledWith({
@@ -231,6 +249,147 @@ describe('AuthService', () => {
       await expect(service.changePassword('u-nonexistent', 'NewSecurePassword123!')).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe('refreshAccessToken', () => {
+    const activeUser = {
+      id: 'u-123',
+      email: 'user@example.com',
+      name: 'John Doe',
+      phone: '9876543210',
+      isSuperadmin: false,
+      mustChangePassword: false,
+      status: 'ACTIVE',
+    };
+
+    const mockSelectRecord = (record: any) => {
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue(record ? [record] : []),
+          }),
+        }),
+      });
+    };
+
+    const mockSelectUser = (user: any) => {
+      mockDb.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue(user ? [user] : []),
+          }),
+        }),
+      });
+    };
+
+    it('should reject an unknown refresh token', async () => {
+      mockSelectRecord(undefined);
+
+      await expect(service.refreshAccessToken('unknown-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should reject an expired refresh token', async () => {
+      mockSelectRecord({
+        id: 'rt-1',
+        userId: 'u-123',
+        revokedAt: null,
+        replacedByTokenId: null,
+        expiresAt: new Date(Date.now() - 1000),
+      });
+
+      await expect(service.refreshAccessToken('expired-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should reject a revoked-but-not-rotated token (e.g. after logout) without mass-revoking', async () => {
+      mockSelectRecord({
+        id: 'rt-1',
+        userId: 'u-123',
+        revokedAt: new Date(),
+        replacedByTokenId: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      await expect(service.refreshAccessToken('logged-out-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it('should treat reuse of an already-rotated token as compromise and revoke every active token for the user', async () => {
+      mockSelectRecord({
+        id: 'rt-1',
+        userId: 'u-123',
+        revokedAt: new Date(),
+        replacedByTokenId: 'rt-2',
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      const mockWhere = jest.fn().mockResolvedValue(true);
+      mockDb.update.mockReturnValue({ set: jest.fn().mockReturnValue({ where: mockWhere }) });
+
+      await expect(service.refreshAccessToken('stolen-and-reused-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reject a valid token belonging to a suspended/inactive user', async () => {
+      mockSelectRecord({
+        id: 'rt-1',
+        userId: 'u-123',
+        revokedAt: null,
+        replacedByTokenId: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockSelectUser({ ...activeUser, status: 'SUSPENDED' });
+
+      await expect(service.refreshAccessToken('valid-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should rotate a valid token: issue a new access+refresh token and revoke the old one', async () => {
+      mockSelectRecord({
+        id: 'rt-1',
+        userId: 'u-123',
+        revokedAt: null,
+        replacedByTokenId: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockSelectUser(activeUser);
+
+      mockDb.insert.mockReturnValueOnce({
+        values: jest.fn().mockReturnValue({
+          returning: jest.fn().mockResolvedValue([{ id: 'rt-2' }]),
+        }),
+      });
+
+      const mockUpdateWhere = jest.fn().mockResolvedValue(true);
+      mockDb.update.mockReturnValue({ set: jest.fn().mockReturnValue({ where: mockUpdateWhere }) });
+
+      const result = await service.refreshAccessToken('valid-token');
+
+      expect(result.accessToken).toBe('mock_jwt_token_u-123');
+      expect(typeof result.refreshToken).toBe('string');
+      expect(result.refreshToken).not.toBe('valid-token');
+      expect(result.user.id).toBe('u-123');
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('revokeRefreshToken', () => {
+    it('should revoke the matching, not-yet-revoked token', async () => {
+      const mockUpdateWhere = jest.fn().mockResolvedValue(true);
+      mockDb.update.mockReturnValue({ set: jest.fn().mockReturnValue({ where: mockUpdateWhere }) });
+
+      await service.revokeRefreshToken('some-token');
+
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
     });
   });
 

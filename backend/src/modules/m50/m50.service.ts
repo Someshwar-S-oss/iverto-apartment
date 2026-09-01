@@ -248,28 +248,37 @@ export class M50Service {
     let subjectType: 'STAFF' | 'VISITOR' | 'DELIVERY' | 'RESIDENT' = 'STAFF';
     let visitorName: string | null = null;
 
+    // `staff` and `entry_events`/`visitor_images` are RLS-protected, and this handler is
+    // reached over the device's own protocol-level auth (serial + token), not a user
+    // JWT — there's no RbacScopeGuard here to have opened a tenant context already. Scope
+    // explicitly to the device's own society (not a full superadmin bypass) so a bug here
+    // can't cross-write into another society even if the device row itself were wrong.
+    const tenantCtx = { societyId: device.societyId, isSuperadmin: false };
+
     if (userIdStr === '0') {
       subjectType = 'STAFF';
       visitorName = 'Terminal Administrator';
     } else if (userIdStr) {
       // 1. Check staff table
-      const [matchedStaff] = await this.drizzle.db
-        .select()
-        .from(staff)
-        .where(
-          and(
-            eq(staff.societyId, device.societyId),
-            or(eq(staff.facePersonRef, userIdStr), eq(staff.phone, userIdStr)),
-          ),
-        )
-        .limit(1);
+      const [matchedStaff] = await this.drizzle.withTenantContext(tenantCtx, () =>
+        this.drizzle.db
+          .select()
+          .from(staff)
+          .where(
+            and(
+              eq(staff.societyId, device.societyId),
+              or(eq(staff.facePersonRef, userIdStr), eq(staff.phone, userIdStr)),
+            ),
+          )
+          .limit(1),
+      );
 
       if (matchedStaff) {
         staffId = matchedStaff.id;
         subjectType = 'STAFF';
         visitorName = matchedStaff.name;
       } else {
-        // 2. Check users table
+        // 2. Check users table (not RLS-protected, no wrap needed)
         const [matchedUser] = await this.drizzle.db
           .select()
           .from(users)
@@ -287,43 +296,51 @@ export class M50Service {
     }
 
     try {
-      const [insertedEvent] = await this.drizzle.db
-        .insert(entryEvents)
-        .values({
-          societyId: device.societyId,
-          gateId: device.gateId,
-          eventSource: 'M50_DEVICE',
-          subjectType,
-          staffId,
-          visitorName,
-          direction,
-          occurredAt,
-          rawPayload: log,
-        })
-        .returning();
-
-      if (logImage && insertedEvent) {
-        try {
-          const imageBuffer = Buffer.from(logImage, 'base64');
-          await this.drizzle.db.insert(visitorImages).values({
-            entryEventId: insertedEvent.id,
-            imageBytes: imageBuffer,
-            mimeType: 'image/jpeg',
-            sizeBytes: imageBuffer.length,
-          });
-        } catch (imgErr) {
-          this.logger.error('Failed to persist visitor image from LogImage', imgErr);
-        }
-      }
-
-      // Fan-out staff arrival/departure notifications if staff member matched
-      if (staffId && this.fanoutService) {
-        try {
-          await this.fanoutService.handleStaffScan(
+      const insertedEvent = await this.drizzle.withTenantContext(tenantCtx, async () => {
+        const [event] = await this.drizzle.db
+          .insert(entryEvents)
+          .values({
+            societyId: device.societyId,
+            gateId: device.gateId,
+            eventSource: 'M50_DEVICE',
+            subjectType,
             staffId,
+            visitorName,
             direction,
             occurredAt,
-            device.gateId || undefined,
+            rawPayload: log,
+          })
+          .returning();
+
+        if (logImage && event) {
+          try {
+            const imageBuffer = Buffer.from(logImage, 'base64');
+            await this.drizzle.db.insert(visitorImages).values({
+              entryEventId: event.id,
+              imageBytes: imageBuffer,
+              mimeType: 'image/jpeg',
+              sizeBytes: imageBuffer.length,
+            });
+          } catch (imgErr) {
+            this.logger.error('Failed to persist visitor image from LogImage', imgErr);
+          }
+        }
+
+        return event;
+      });
+
+      // Fan-out staff arrival/departure notifications if staff member matched. Runs
+      // outside the DB transaction above since it also does an FCM push (external I/O)
+      // — FanoutService reads `staff` itself, so it needs the same tenant scope.
+      if (staffId && this.fanoutService) {
+        try {
+          await this.drizzle.withTenantContext(tenantCtx, () =>
+            this.fanoutService!.handleStaffScan(
+              staffId!,
+              direction,
+              occurredAt,
+              device.gateId || undefined,
+            ),
           );
         } catch (fanoutErr) {
           this.logger.error(`Failed to execute fanout for staff ${staffId}`, fanoutErr);
@@ -334,7 +351,7 @@ export class M50Service {
       const logPos = log.LogPos != null ? parseInt(String(log.LogPos), 10) : (logId ?? 0);
       await this.updateSyncCursor(deviceSerial, logPos, occurredAt);
 
-      // Refresh device heartbeat
+      // Refresh device heartbeat (devices carries no RLS, no wrap needed)
       await this.drizzle.db
         .update(devices)
         .set({

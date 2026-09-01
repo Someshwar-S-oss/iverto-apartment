@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import apiClient, { AUTH_TOKEN_KEY, AUTH_SESSION_KEY } from '../api/client';
+import apiClient, { AUTH_TOKEN_KEY, AUTH_REFRESH_TOKEN_KEY, AUTH_SESSION_KEY } from '../api/client';
 import authApi, { LoginResponse, ChangePasswordResponse } from '../api/auth.api';
 import type { User } from '../api/types';
 
@@ -63,7 +63,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(() => {
+    // Best-effort server-side revocation — fire and forget. If this fails (offline,
+    // token already gone) the local session is cleared regardless; the worst case is a
+    // refresh token that outlives this logout until its own expiry, same as before this
+    // endpoint existed.
+    const storedRefreshToken = localStorage.getItem(AUTH_REFRESH_TOKEN_KEY);
+    if (storedRefreshToken) {
+      authApi.logout(storedRefreshToken).catch(() => {});
+    }
+
     localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_REFRESH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     localStorage.removeItem('iverto_active_context_id');
     applyAuthHeader(null);
@@ -75,9 +85,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = useCallback(
     async (email: string, pass: string): Promise<LoginResponse> => {
       const res = await authApi.login(email, pass);
-      const { accessToken, user: loggedUser, mustChangePassword: needsPasswordChange } = res;
+      const { accessToken, refreshToken, user: loggedUser, mustChangePassword: needsPasswordChange } = res;
 
       localStorage.setItem(AUTH_TOKEN_KEY, accessToken);
+      if (refreshToken) {
+        localStorage.setItem(AUTH_REFRESH_TOKEN_KEY, refreshToken);
+      }
       localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(loggedUser));
       applyAuthHeader(accessToken);
 
@@ -103,6 +116,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem(AUTH_TOKEN_KEY, res.accessToken);
         applyAuthHeader(res.accessToken);
         setToken(res.accessToken);
+      }
+      // A password change revokes every prior refresh token server-side (see
+      // AuthService.changePassword) and issues a fresh one for this device — store it,
+      // or this device's own next silent refresh would fail.
+      if (res.refreshToken) {
+        localStorage.setItem(AUTH_REFRESH_TOKEN_KEY, res.refreshToken);
       }
 
       localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(updatedUser));
