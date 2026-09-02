@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   UseGuards,
   BadRequestException,
@@ -15,6 +16,10 @@ import { NotificationsService } from '../../modules/notifications/notifications.
 export interface RegisterDeviceTokenDto {
   fcmToken: string;
   platform: 'android' | 'ios' | 'web';
+}
+
+export interface UnregisterDeviceTokenDto {
+  fcmToken: string;
 }
 
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -48,5 +53,20 @@ export class MobileAuthController {
       body.fcmToken,
       body.platform,
     );
+  }
+
+  // Called on sign-out — see NotificationsService.unregisterDeviceToken for why this
+  // needs to exist at all: sign-out used to only stop the app from re-registering, never
+  // told the service to stop sending.
+  @Delete('me/device-token')
+  async unregisterDeviceToken(
+    @CurrentUser('sub') userId: string,
+    @Body() body: UnregisterDeviceTokenDto,
+  ) {
+    if (!body.fcmToken) {
+      throw new BadRequestException('fcmToken is required');
+    }
+
+    return this.notificationsService.unregisterDeviceToken(userId, body.fcmToken);
   }
 }

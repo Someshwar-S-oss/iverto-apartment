@@ -36,12 +36,17 @@ export const ROLE_GRANTS: Record<string, string[]> = {
     'complaint.view@UNIT',
     'notice.read@UNIT',
   ],
+  // directory.read is @SOCIETY, not @GATE: a directory is society-wide data — the same
+  // rows behind every barrier — per gate-management-architecture.md §4.1. It used to be
+  // granted @GATE here, matching a route that checked @GATE too, so the mismatch never
+  // showed up as a *disagreement* — the whole path just 403'd unconditionally for every
+  // guard, on every gate (see mobile-guard.controller.ts's getDirectory/getSocietyStaff).
   GUARD: [
     'entry.create@GATE',
     'photo.capture@GATE',
     'approval.request@GATE',
     'passcode.verify@GATE',
-    'directory.read@GATE',
+    'directory.read@SOCIETY',
     'entry.view@GATE',
   ],
   GUARD_SUPERVISOR: [
@@ -49,7 +54,7 @@ export const ROLE_GRANTS: Record<string, string[]> = {
     'photo.capture@GATE',
     'approval.request@GATE',
     'passcode.verify@GATE',
-    'directory.read@GATE',
+    'directory.read@SOCIETY',
     'entry.view@GATE',
     'guard.roster@SOCIETY',
     'entry.view@SOCIETY',

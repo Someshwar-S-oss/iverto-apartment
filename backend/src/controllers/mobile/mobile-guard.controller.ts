@@ -84,7 +84,11 @@ export class MobileGuardController {
   }
 
   @Get('directory')
-  @RequirePermission('directory.read', ScopeType.GATE)
+  // SOCIETY, not GATE: a directory is society-wide data — the same rows behind every
+  // barrier — per gate-management-architecture.md §4.1 and rbac.constants.ts's grant
+  // table. assertPermission's SOCIETY branch resolves this route's gateId param to its
+  // owning society via the same device/gate lookup the GATE branch uses.
+  @RequirePermission('directory.read', ScopeType.SOCIETY)
   async getDirectory(
     @Param('gateId') gateId: string,
     @Query('query') searchQuery?: string,
@@ -260,7 +264,7 @@ export class MobileGuardController {
   }
 
   @Get('staff')
-  @RequirePermission('directory.read', ScopeType.GATE)
+  @RequirePermission('directory.read', ScopeType.SOCIETY)
   async getSocietyStaff(
     @Param('gateId') gateId: string,
     @Query('status') status?: 'ACTIVE' | 'INACTIVE',

@@ -317,7 +317,7 @@ describe('RbacService', () => {
       expect(canStaff).toBe(false);
     });
 
-    it('should allow GUARD entry.create and directory.read on GATE', async () => {
+    it('should allow GUARD entry.create on GATE and directory.read on SOCIETY', async () => {
       setupUserDbMocks({
         societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
       });
@@ -331,13 +331,24 @@ describe('RbacService', () => {
       );
       expect(canCreateEntry).toBe(true);
 
+      // directory.read is granted @SOCIETY, not @GATE — a directory is society-wide data,
+      // the same rows behind every barrier (see rbac.constants.ts and
+      // mobile-guard.controller.ts's getDirectory).
       const canReadDirectory = await service.assertPermission(
+        userId,
+        'directory.read',
+        ScopeType.SOCIETY,
+        'soc-1',
+      );
+      expect(canReadDirectory).toBe(true);
+
+      const cannotReadDirectoryAtGate = await service.assertPermission(
         userId,
         'directory.read',
         ScopeType.GATE,
         'soc-1',
       );
-      expect(canReadDirectory).toBe(true);
+      expect(cannotReadDirectoryAtGate).toBe(false);
 
       const canRoster = await service.assertPermission(
         userId,
@@ -346,6 +357,30 @@ describe('RbacService', () => {
         'soc-1',
       );
       expect(canRoster).toBe(false);
+    });
+
+    it('resolves directory.read@SOCIETY for a GUARD when the URL only carries a gateId', async () => {
+      setupUserDbMocks({
+        societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
+      });
+
+      // Mock device query resolving gate-uuid-123 -> soc-1, same as assertPermission's
+      // GATE branch does for entry.create etc.
+      mockDrizzleService.db.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ societyId: 'soc-1' }]),
+          }),
+        }),
+      });
+
+      const canReadDirectory = await service.assertPermission(
+        userId,
+        'directory.read',
+        ScopeType.SOCIETY,
+        'gate-uuid-123',
+      );
+      expect(canReadDirectory).toBe(true);
     });
 
     it('should allow GUARD on gateId by resolving device society', async () => {
@@ -542,10 +577,34 @@ describe('RbacService', () => {
       expect(mockDrizzleService.db.select).not.toHaveBeenCalled();
     });
 
-    it('returns the targetScopeId directly for SOCIETY scope', async () => {
-      const result = await service.resolveScopeSocietyId(userId, ScopeType.SOCIETY, 'soc-42');
-      expect(result).toBe('soc-42');
-      expect(mockDrizzleService.db.select).not.toHaveBeenCalled();
+    it('resolves SOCIETY scope directly when targetScopeId is already a society grant', async () => {
+      // SOCIETY shares GATE's resolution path (see rbac.service.ts) — a SOCIETY-scoped
+      // check can arrive with either a real societyId or a gateId in the URL (e.g.
+      // directory.read@SOCIETY under /mobile/gates/:gateId/...), so it can no longer
+      // just pass targetScopeId through unchecked.
+      setupUserDbMocks({
+        societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
+      });
+
+      const result = await service.resolveScopeSocietyId(userId, ScopeType.SOCIETY, 'soc-1');
+      expect(result).toBe('soc-1');
+    });
+
+    it('resolves SOCIETY scope via device lookup when targetScopeId is a raw gate id', async () => {
+      setupUserDbMocks({
+        societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
+      });
+
+      mockDrizzleService.db.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ societyId: 'soc-1' }]),
+          }),
+        }),
+      });
+
+      const result = await service.resolveScopeSocietyId(userId, ScopeType.SOCIETY, 'gate-uuid-123');
+      expect(result).toBe('soc-1');
     });
 
     it('resolves the owning society for UNIT scope from cached grants', async () => {

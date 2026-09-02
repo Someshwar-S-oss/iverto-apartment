@@ -282,8 +282,29 @@ export class RbacService implements OnModuleInit, OnModuleDestroy {
 
       case ScopeType.SOCIETY: {
         if (targetScopeId) {
+          // targetScopeId matching *any* society the user holds a role in (regardless of
+          // whether that role has requiredGrant) confirms it really is a societyId — the
+          // answer is whatever that role's grants say, full stop, no need to go further.
+          const matchesKnownSociety = cachedPerms.societyGrants.some((sg) => sg.societyId === targetScopeId);
+          if (matchesKnownSociety) {
+            return cachedPerms.societyGrants.some(
+              (sg) => sg.societyId === targetScopeId && sg.grants.includes(requiredGrant),
+            );
+          }
+
+          // Otherwise targetScopeId isn't a societyId the user holds any role in — it may
+          // be a gate or device id instead. Routes under /mobile/gates/:gateId/... only
+          // ever have a gateId in their URL, even for checks the grant table scopes to
+          // SOCIETY (directory.read is one: a directory is society-wide data, the same
+          // rows behind every barrier, see mobile-guard.controller.ts's getDirectory).
+          // Resolve it via the gate/device mapping the same way the GATE branch below
+          // does, rather than failing a check that's only mis-shaped, not actually
+          // unauthorized.
+          const resolvedSocietyId = await this.resolveGateOrDeviceSocietyId(targetScopeId);
+          if (!resolvedSocietyId) return false;
+
           return cachedPerms.societyGrants.some(
-            (sg) => sg.societyId === targetScopeId && sg.grants.includes(requiredGrant),
+            (sg) => sg.societyId === resolvedSocietyId && sg.grants.includes(requiredGrant),
           );
         }
         return cachedPerms.societyGrants.some((sg) => sg.grants.includes(requiredGrant));
@@ -367,14 +388,16 @@ export class RbacService implements OnModuleInit, OnModuleDestroy {
       case ScopeType.GLOBAL:
         return undefined;
 
-      case ScopeType.SOCIETY:
-        return targetScopeId;
-
       case ScopeType.UNIT: {
         const cachedPerms = await this.getOrLoadUserPermissions(userId);
         return cachedPerms.unitGrants.find((ug) => ug.unitId === targetScopeId)?.societyId || undefined;
       }
 
+      // SOCIETY and GATE share a resolution path: a SOCIETY-scoped check on a route whose
+      // URL only carries a gateId (e.g. directory.read@SOCIETY under
+      // /mobile/gates/:gateId/...) needs the exact same gate/device fallback a GATE-scoped
+      // check does. See assertPermission's matching SOCIETY branch for why.
+      case ScopeType.SOCIETY:
       case ScopeType.GATE: {
         const cachedPerms = await this.getOrLoadUserPermissions(userId);
         const directMatch = cachedPerms.societyGrants.find((sg) => sg.societyId === targetScopeId);
@@ -382,21 +405,28 @@ export class RbacService implements OnModuleInit, OnModuleDestroy {
           return directMatch.societyId;
         }
 
-        // Not a direct societyId — resolve via the device/gate mapping, same as
-        // assertPermission's GATE branch. devices carries no RLS (see ./schema), so this
-        // is a plain lookup, not a bypass.
-        const [device] = await this.drizzle.db
-          .select({ societyId: devices.societyId })
-          .from(devices)
-          .where(or(eq(devices.gateId, targetScopeId), eq(devices.id, targetScopeId)))
-          .limit(1);
-
-        return device?.societyId;
+        // Not a direct societyId — resolve via the device/gate mapping.
+        return this.resolveGateOrDeviceSocietyId(targetScopeId);
       }
 
       default:
         return undefined;
     }
+  }
+
+  /**
+   * Resolves a gate or device id to the society it belongs to. Shared by
+   * assertPermission's SOCIETY and GATE branches and by resolveScopeSocietyId — devices
+   * carries no RLS (see ./schema), so this is a plain lookup, not a bypass.
+   */
+  private async resolveGateOrDeviceSocietyId(gateOrDeviceId: string): Promise<string | undefined> {
+    const [device] = await this.drizzle.db
+      .select({ societyId: devices.societyId })
+      .from(devices)
+      .where(or(eq(devices.gateId, gateOrDeviceId), eq(devices.id, gateOrDeviceId)))
+      .limit(1);
+
+    return device?.societyId;
   }
 
   /**

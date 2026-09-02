@@ -207,6 +207,8 @@ export class EntryEventsService {
                 entryEventId: entry.id,
                 platform: data.platform || '',
                 mode: 'LEAVE_AT_GATE',
+                gateId,
+                societyId,
               },
               entry.id,
             );
@@ -221,6 +223,8 @@ export class EntryEventsService {
                 entryEventId: entry.id,
                 platform: data.platform || '',
                 silent: 'true',
+                gateId,
+                societyId,
               },
               entry.id,
             );
@@ -270,6 +274,8 @@ export class EntryEventsService {
               entryEventId: entry.id,
               platform: data.platform || '',
               mode: 'ALLOW_TO_DOOR',
+              gateId,
+              societyId,
             },
             entry.id,
           );
@@ -310,6 +316,8 @@ export class EntryEventsService {
           entryEventId: entry.id,
           platform: data.platform || '',
           subjectType: 'DELIVERY',
+          gateId,
+          societyId,
         },
         entry.id,
       );
@@ -349,6 +357,8 @@ export class EntryEventsService {
           entryEventId: entry.id,
           visitorName: data.visitorName || '',
           subjectType: 'VISITOR',
+          gateId,
+          societyId,
         },
         entry.id,
       );

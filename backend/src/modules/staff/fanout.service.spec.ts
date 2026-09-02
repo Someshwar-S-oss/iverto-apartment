@@ -119,6 +119,7 @@ describe('FanoutService', () => {
           staffType: 'MAID',
           direction: 'IN',
           occurredAt: '2026-08-29T10:00:00.000Z',
+          societyId: 'soc-1',
           gateId: 'gate-main',
         },
       );
@@ -175,6 +176,7 @@ describe('FanoutService', () => {
           staffType: 'DRIVER',
           direction: 'OUT',
           occurredAt: '2026-08-29T18:30:00.000Z',
+          societyId: 'soc-1',
         },
       );
     });

@@ -88,6 +88,7 @@ export class FanoutService {
           staffType: staffMember.staffType,
           direction,
           occurredAt: occurredIso,
+          societyId: staffMember.societyId,
           ...(gateId ? { gateId } : {}),
         },
       );
