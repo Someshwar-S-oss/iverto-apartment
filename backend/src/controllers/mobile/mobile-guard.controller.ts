@@ -22,7 +22,7 @@ import { RequirePermission } from '../../modules/rbac/decorators/require-permiss
 import { CurrentUser } from '../../modules/rbac/decorators/current-user.decorator';
 import { ScopeType } from '../../modules/rbac/rbac.constants';
 import { DrizzleService } from '../../database/drizzle.service';
-import { devices, units, buildings, unitMemberships, users } from '../../database/schema';
+import { devices, gates, units, buildings, unitMemberships, users } from '../../database/schema';
 import { EntryEventsService } from '../../modules/entry-events/entry-events.service';
 import { ApprovalsService } from '../../modules/approvals/approvals.service';
 import { VisitorImagesService } from '../../modules/media/visitor-images.service';
@@ -69,6 +69,20 @@ export class MobileGuardController {
   ) {}
 
   private async getSocietyIdForGate(gateId: string): Promise<string> {
+    // gates.id first — a gate is first-class now and can validly have zero devices
+    // provisioned to it yet (see gates.ts, rbac.service.ts's assertPermission GATE
+    // branch). Falls back to the old devices-only lookup for a legacy/edge caller
+    // that still passes a device id.
+    const [gate] = await this.drizzle.db
+      .select({ societyId: gates.societyId })
+      .from(gates)
+      .where(eq(gates.id, gateId))
+      .limit(1);
+
+    if (gate) {
+      return gate.societyId;
+    }
+
     const [device] = await this.drizzle.db
       .select({ societyId: devices.societyId })
       .from(devices)

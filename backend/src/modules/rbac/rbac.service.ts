@@ -329,6 +329,31 @@ export class RbacService implements OnModuleInit, OnModuleDestroy {
             return false;
           }
 
+          // Every real caller's :gateId is a gates.id (RbacScopeGuard, MobileGuardController,
+          // realtime.gateway.ts — none of them ever put a device id here), so resolve
+          // against `gates` first. A gate can exist — and be validly assigned to a guard
+          // via society_roles.gateId — with zero devices/tablets provisioned to it yet
+          // (see gates.ts); querying `devices` alone (the pre-gates-table lookup, kept
+          // below only as a fallback for a legacy/edge caller that still passes a device
+          // id) 403s every such gate regardless of what the grant table says.
+          const [gate] = await this.drizzle.db
+            .select({ id: gates.id, societyId: gates.societyId })
+            .from(gates)
+            .where(eq(gates.id, targetScopeId))
+            .limit(1);
+
+          if (gate) {
+            if (!grantedSocietyIds.includes(gate.societyId)) {
+              return false;
+            }
+            return cachedPerms.societyGrants.some(
+              (sg) =>
+                sg.societyId === gate.societyId &&
+                sg.grants.includes(requiredGrant) &&
+                (sg.gateId == null || sg.gateId === gate.id),
+            );
+          }
+
           const [device] = await this.drizzle.db
             .select({ societyId: devices.societyId, gateId: devices.gateId })
             .from(devices)
@@ -420,6 +445,17 @@ export class RbacService implements OnModuleInit, OnModuleDestroy {
    * carries no RLS (see ./schema), so this is a plain lookup, not a bypass.
    */
   private async resolveGateOrDeviceSocietyId(gateOrDeviceId: string): Promise<string | undefined> {
+    // See the identical comment in assertPermission's GATE branch: gates.id first,
+    // devices only as a fallback — a gate can validly have no device yet.
+    const [gate] = await this.drizzle.db
+      .select({ societyId: gates.societyId })
+      .from(gates)
+      .where(eq(gates.id, gateOrDeviceId))
+      .limit(1);
+    if (gate) {
+      return gate.societyId;
+    }
+
     const [device] = await this.drizzle.db
       .select({ societyId: devices.societyId })
       .from(devices)

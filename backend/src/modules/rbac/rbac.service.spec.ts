@@ -383,16 +383,17 @@ describe('RbacService', () => {
       expect(canReadDirectory).toBe(true);
     });
 
-    it('should allow GUARD on gateId by resolving device society', async () => {
+    it('should allow GUARD on gateId by resolving gate society', async () => {
       setupUserDbMocks({
         societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
       });
 
-      // Mock device query returning societyId 'soc-1'
+      // Mock the gates lookup returning the gate's own row — gateId is a gates.id now,
+      // resolved directly, no device involved.
       mockDrizzleService.db.select.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ societyId: 'soc-1' }]),
+            limit: jest.fn().mockResolvedValue([{ id: 'gate-uuid-123', societyId: 'soc-1' }]),
           }),
         }),
       });
@@ -406,6 +407,35 @@ describe('RbacService', () => {
       expect(canCreateEntryOnGate).toBe(true);
     });
 
+    it('should allow a gate-scoped GUARD at a gate with no device provisioned yet', async () => {
+      // Regression test: a gate is first-class (see gates.ts) and can be validly
+      // assigned to a guard via society_roles.gateId before any device/tablet is ever
+      // registered to it. The GATE branch must resolve via `gates`, not fall through to
+      // an empty `devices` lookup and 403 a correctly-granted guard.
+      setupUserDbMocks({
+        societyRoles: [{ societyId: 'soc-1', role: 'GUARD', gateId: 'gate-1' }],
+      });
+
+      mockDrizzleService.db.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ id: 'gate-1', societyId: 'soc-1' }]),
+          }),
+        }),
+      });
+
+      const canReadPending = await service.assertPermission(
+        userId,
+        'entry.view',
+        ScopeType.GATE,
+        'gate-1',
+      );
+      expect(canReadPending).toBe(true);
+      // Exactly one extra query beyond the three permission-loading ones — the gates
+      // lookup alone; no fallback devices query needed.
+      expect(mockDrizzleService.db.select).toHaveBeenCalledTimes(4);
+    });
+
     it('should allow a gate-scoped GUARD at their own gate, and reject them at a different gate', async () => {
       setupUserDbMocks({
         societyRoles: [{ societyId: 'soc-1', role: 'GUARD', gateId: 'gate-1' }],
@@ -414,7 +444,7 @@ describe('RbacService', () => {
       mockDrizzleService.db.select.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ societyId: 'soc-1', gateId: 'gate-1' }]),
+            limit: jest.fn().mockResolvedValue([{ id: 'gate-1', societyId: 'soc-1' }]),
           }),
         }),
       });
@@ -433,11 +463,11 @@ describe('RbacService', () => {
         societyRoles: [{ societyId: 'soc-1', role: 'GUARD', gateId: 'gate-1' }],
       });
 
-      // The device at the targeted gate belongs to the same society, but is a different gate.
+      // The gate they're hitting belongs to the same society, but is a different gate.
       mockDrizzleService.db.select.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ societyId: 'soc-1', gateId: 'gate-2' }]),
+            limit: jest.fn().mockResolvedValue([{ id: 'gate-2', societyId: 'soc-1' }]),
           }),
         }),
       });
@@ -590,7 +620,7 @@ describe('RbacService', () => {
       expect(result).toBe('soc-1');
     });
 
-    it('resolves SOCIETY scope via device lookup when targetScopeId is a raw gate id', async () => {
+    it('resolves SOCIETY scope via gate lookup when targetScopeId is a raw gate id', async () => {
       setupUserDbMocks({
         societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
       });
@@ -634,7 +664,7 @@ describe('RbacService', () => {
       expect(result).toBe('soc-1');
     });
 
-    it('resolves GATE scope via device lookup when targetScopeId is a raw gate id', async () => {
+    it('resolves GATE scope via gate lookup when targetScopeId is a raw gate id', async () => {
       setupUserDbMocks({
         societyRoles: [{ societyId: 'soc-1', role: 'GUARD' }],
       });
