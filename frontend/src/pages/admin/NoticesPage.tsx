@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Megaphone,
@@ -21,6 +21,9 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const NOTICES_KEY = (societyId: string) => `admin/notices|society:${societyId}`;
 
 export const NoticesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -32,9 +35,6 @@ export const NoticesPage: React.FC = () => {
     (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
     '';
 
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
 
@@ -59,37 +59,20 @@ export const NoticesPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch notices
-  const fetchNotices = useCallback(
-    async (showRefreshing = false) => {
-      if (!societyId) return;
+  const noticesKey = useMemo(() => NOTICES_KEY(societyId || 'none'), [societyId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const data = await societyAdminApi.getNotices(societyId);
-        setNotices(data);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load community notices.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, toastError],
+  const {
+    data: noticesData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<Notice[]>(
+    noticesKey,
+    () => societyAdminApi.getNotices(societyId).then((data) => data || []),
+    { deps: [societyId], skipInitialFetch: !societyId },
   );
 
-  useEffect(() => {
-    fetchNotices();
-  }, [fetchNotices]);
+  const notices = useMemo(() => noticesData ?? [], [noticesData]);
 
   // Handle Create Notice
   const handleCreateNotice = async (e: React.FormEvent) => {
@@ -112,7 +95,7 @@ export const NoticesPage: React.FC = () => {
       setFormBody('');
       setFormCategory('GENERAL');
       setFormIsPinned(false);
-      await fetchNotices(true);
+      await refetch(true);
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -130,7 +113,7 @@ export const NoticesPage: React.FC = () => {
     try {
       await societyAdminApi.togglePinNotice(societyId, notice.id);
       toastSuccess(notice.isPinned ? 'Notice unpinned.' : 'Notice pinned to top of board.');
-      await fetchNotices(true);
+      await refetch(true);
     } catch (err: any) {
       toastError('Failed to toggle pin state.');
     }
@@ -139,12 +122,13 @@ export const NoticesPage: React.FC = () => {
   // Handle Delete Notice
   const handleDeleteNotice = async () => {
     if (!societyId || !noticeToDelete) return;
+
     setIsDeleting(true);
     try {
       await societyAdminApi.deleteNotice(societyId, noticeToDelete.id);
-      toastSuccess('Notice removed from board.');
+      toastSuccess(`Notice "${noticeToDelete.title}" deleted.`);
       setNoticeToDelete(null);
-      await fetchNotices(true);
+      await refetch(true);
     } catch (err: any) {
       toastError('Failed to delete notice.');
     } finally {
@@ -201,7 +185,7 @@ export const NoticesPage: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => fetchNotices(true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh notices"

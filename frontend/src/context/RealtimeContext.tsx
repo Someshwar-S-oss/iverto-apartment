@@ -109,10 +109,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
 
-    const wsUrl =
+    const rawWsUrl =
       import.meta.env.VITE_WS_URL ||
       import.meta.env.VITE_API_URL ||
       (typeof window !== 'undefined' ? window.location.origin : '');
+    const wsUrl = rawWsUrl.replace(/\/+$/, '');
 
     const unitId = activeContext?.unitId || (activeContext?.type === 'UNIT' ? activeContext.id : undefined);
     const gateId = activeContext?.gateId || (activeContext?.type === 'GATE' ? activeContext.id : undefined);

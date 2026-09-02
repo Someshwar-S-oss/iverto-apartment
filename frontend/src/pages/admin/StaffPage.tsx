@@ -24,6 +24,10 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const STAFF_KEY = (societyId: string) => `admin/staff|society:${societyId}`;
+const UNITS_KEY = (societyId: string) => `admin/staff/units|society:${societyId}`;
 
 export const StaffPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,9 +39,6 @@ export const StaffPage: React.FC = () => {
     (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
     '';
 
-  const [staffList, setStaffList] = useState<Staff[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -65,7 +66,6 @@ export const StaffPage: React.FC = () => {
 
   // Assign-to-flat controls, shown inside the edit modal. Site-admin-only action —
   // residents can no longer self-assign staff (see rbac.constants.ts).
-  const [units, setUnits] = useState<Unit[]>([]);
   const [unitToAssign, setUnitToAssign] = useState<string>('');
   const [assignNotify, setAssignNotify] = useState<boolean>(true);
   const [isAssigningUnit, setIsAssigningUnit] = useState<boolean>(false);
@@ -80,37 +80,34 @@ export const StaffPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch staff
-  const fetchStaff = useCallback(
-    async (showRefreshing = false) => {
-      if (!societyId) return;
+  const staffKey = useMemo(() => STAFF_KEY(societyId || 'none'), [societyId]);
+  const unitsKey = useMemo(() => UNITS_KEY(societyId || 'none'), [societyId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
+  const {
+    data: staffData,
+    isLoading: isLoadingStaff,
+    isRefreshing: isRefreshingStaff,
+    refetch: refetchStaff,
+  } = useCachedFetch<Staff[]>(staffKey, () => societyAdminApi.getStaff(societyId), {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
 
-      try {
-        const data = await societyAdminApi.getStaff(societyId);
-        setStaffList(data);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load society domestic staff.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, toastError],
-  );
+  const {
+    data: unitsData,
+    refetch: refetchUnits,
+  } = useCachedFetch<Unit[]>(unitsKey, () => societyAdminApi.getUnits(societyId).catch(() => []), {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
 
-  useEffect(() => {
-    fetchStaff();
-  }, [fetchStaff]);
+  const isLoading = isLoadingStaff;
+  const isRefreshing = isRefreshingStaff;
+
+  const staffList: Staff[] = useMemo(() => staffData ?? [], [staffData]);
+  const units: Unit[] = useMemo(() => unitsData ?? [], [unitsData]);
+
+  const refresh = useCallback(() => refetchStaff(true), [refetchStaff]);
 
   // Handle Register Staff
   const handleRegisterStaff = async (e: React.FormEvent) => {
@@ -134,7 +131,7 @@ export const StaffPage: React.FC = () => {
         staffType: 'MAID',
         facePersonRef: '',
       });
-      await fetchStaff(true);
+      await refresh();
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -159,12 +156,8 @@ export const StaffPage: React.FC = () => {
     setUnitToAssign('');
 
     if (societyId && units.length === 0) {
-      try {
-        const unitList = await societyAdminApi.getUnits(societyId);
-        setUnits(unitList || []);
-      } catch (err) {
-        console.error('Failed to load units for staff assignment:', err);
-      }
+      // Warm the units cache (idempotent — keeps any cached units in place).
+      void refetchUnits(true);
     }
   };
 
@@ -230,7 +223,7 @@ export const StaffPage: React.FC = () => {
 
       toastSuccess(`Staff profile for ${updated.name} updated.`);
       setSelectedStaffToEdit(null);
-      await fetchStaff(true);
+      await refresh();
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -286,7 +279,7 @@ export const StaffPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => fetchStaff(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh staff roster"

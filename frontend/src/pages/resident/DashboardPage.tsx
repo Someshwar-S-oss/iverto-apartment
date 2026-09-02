@@ -29,13 +29,21 @@ import { TableSkeleton } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
 import { useToast } from '../../context/ToastContext';
+import { useCache } from '../../context/CacheContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { playAllowChime, playDenyChime } from '../../components/real-time/SoundEffects';
+
+const APPROVALS_KEY = (unitId: string) => `resident/approvals/pending|unit:${unitId}`;
+const STAFF_KEY = (unitId: string) => `resident/staff|unit:${unitId}`;
+const PASSCODES_KEY = (unitId: string) => `resident/passcodes|unit:${unitId}`;
+const EVENTS_KEY = (unitId: string) => `resident/dashboard/events|unit:${unitId}`;
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { activeContext } = useRole();
   const { incomingApproval, latestEntryEvent, isConnected, clearIncomingApproval } = useRealtime();
   const toast = useToast();
+  const cache = useCache();
 
   const unitId =
     activeContext?.unitId ||
@@ -45,62 +53,80 @@ export const DashboardPage: React.FC = () => {
   const buildingName = activeContext?.buildingName || '';
   const societyName = activeContext?.societyName || 'Society';
 
-  const [pendingApprovals, setPendingApprovals] = useState<Approval[]>([]);
-  const [assignedStaff, setAssignedStaff] = useState<Staff[]>([]);
-  const [passcodes, setPasscodes] = useState<Passcode[]>([]);
-  const [recentEvents, setRecentEvents] = useState<EntryEvent[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
-  // Load all summary dashboard data for this unit
-  const loadDashboardData = useCallback(
-    async (showRefreshing = false) => {
-      if (!unitId) {
-        setIsLoading(false);
-        setIsRefreshing(false);
-        return;
-      }
+  const approvalsKey = useMemo(() => APPROVALS_KEY(unitId || 'none'), [unitId]);
+  const staffKey = useMemo(() => STAFF_KEY(unitId || 'none'), [unitId]);
+  const passcodesKey = useMemo(() => PASSCODES_KEY(unitId || 'none'), [unitId]);
+  const eventsKey = useMemo(() => EVENTS_KEY(unitId || 'none'), [unitId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const [approvalsData, staffData, passcodesData, eventsData] = await Promise.all([
-          residentApi.getPendingApprovals(unitId).catch(() => []),
-          residentApi.getStaff(unitId).catch(() => []),
-          residentApi.listPasscodes(unitId).catch(() => []),
-          residentApi.getEntryEvents(unitId, 1, 8).catch(() => ({ data: [], total: 0 })),
-        ]);
-
-        setPendingApprovals(approvalsData || []);
-        setAssignedStaff(staffData || []);
-        setPasscodes(passcodesData || []);
-        setRecentEvents(eventsData.data || []);
-      } catch (err: any) {
-        console.error('Failed to load resident dashboard metrics:', err);
-        toast.error('Failed to fetch dashboard updates. Please refresh.');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [unitId, toast],
+  const {
+    data: pendingData,
+    isLoading: isLoadingApprovals,
+    isRefreshing: isRefreshingApprovals,
+    refetch: refetchApprovals,
+    setData: setPendingApprovalsCache,
+  } = useCachedFetch<Approval[]>(
+    approvalsKey,
+    () => residentApi.getPendingApprovals(unitId).catch(() => []),
+    { deps: [unitId], skipInitialFetch: !unitId },
   );
 
-  useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+  const {
+    data: staffData,
+    isLoading: isLoadingStaff,
+    isRefreshing: isRefreshingStaff,
+    refetch: refetchStaff,
+  } = useCachedFetch<Staff[]>(
+    staffKey,
+    () => residentApi.getStaff(unitId).catch(() => []),
+    { deps: [unitId], skipInitialFetch: !unitId },
+  );
+
+  const {
+    data: passcodesData,
+    isLoading: isLoadingPasscodes,
+    isRefreshing: isRefreshingPasscodes,
+    refetch: refetchPasscodes,
+  } = useCachedFetch<Passcode[]>(
+    passcodesKey,
+    () => residentApi.listPasscodes(unitId).catch(() => []),
+    { deps: [unitId], skipInitialFetch: !unitId },
+  );
+
+  const {
+    data: eventsData,
+    isLoading: isLoadingEvents,
+    isRefreshing: isRefreshingEvents,
+    refetch: refetchEvents,
+  } = useCachedFetch<EntryEvent[]>(
+    eventsKey,
+    async () => {
+      const res = await residentApi.getEntryEvents(unitId, 1, 8).catch(() => ({ data: [], total: 0 }));
+      return res.data || [];
+    },
+    { deps: [unitId], skipInitialFetch: !unitId },
+  );
+
+  const pendingApprovals = useMemo(() => pendingData ?? [], [pendingData]);
+  const assignedStaff = useMemo(() => staffData ?? [], [staffData]);
+  const passcodes = useMemo(() => passcodesData ?? [], [passcodesData]);
+  const recentEvents = useMemo(() => eventsData ?? [], [eventsData]);
+
+  const isLoading = isLoadingApprovals || isLoadingStaff || isLoadingPasscodes || isLoadingEvents;
+  const isRefreshing = isRefreshingApprovals || isRefreshingStaff || isRefreshingPasscodes || isRefreshingEvents;
+
+  const refresh = useCallback(
+    () => Promise.all([refetchApprovals(true), refetchStaff(true), refetchPasscodes(true), refetchEvents(true)]),
+    [refetchApprovals, refetchStaff, refetchPasscodes, refetchEvents],
+  );
 
   // Real-time listener for incoming approval requests
   useEffect(() => {
     if (incomingApproval && (!incomingApproval.unitId || incomingApproval.unitId === unitId)) {
-      setPendingApprovals((prev) => {
-        const exists = prev.some((a) => a.id === incomingApproval.approvalId);
-        if (exists) return prev;
+      const current = cache.get<Approval[]>(approvalsKey)?.data ?? [];
+      const exists = current.some((a) => a.id === incomingApproval.approvalId);
+      if (!exists) {
         const newApproval: Approval = {
           id: incomingApproval.approvalId,
           entryEventId: incomingApproval.entryEventId,
@@ -114,21 +140,21 @@ export const DashboardPage: React.FC = () => {
           platform: incomingApproval.platform as any,
           unitNumber: incomingApproval.unitNumber,
         };
-        return [newApproval, ...prev];
-      });
+        cache.set<Approval[]>(approvalsKey, [newApproval, ...current], null);
+      }
     }
-  }, [incomingApproval, unitId]);
+  }, [incomingApproval, unitId, approvalsKey, cache]);
 
   // Real-time listener for gate events
   useEffect(() => {
     if (latestEntryEvent && (!latestEntryEvent.unitId || latestEntryEvent.unitId === unitId)) {
-      setRecentEvents((prev) => {
-        const exists = prev.some((e) => e.id === latestEntryEvent.id);
-        if (exists) return prev;
-        return [latestEntryEvent, ...prev.slice(0, 7)];
-      });
+      const current = cache.get<EntryEvent[]>(eventsKey)?.data ?? [];
+      const exists = current.some((e) => e.id === latestEntryEvent.id);
+      if (!exists) {
+        cache.set<EntryEvent[]>(eventsKey, [latestEntryEvent, ...current.slice(0, 7)], null);
+      }
     }
-  }, [latestEntryEvent, unitId]);
+  }, [latestEntryEvent, unitId, eventsKey, cache]);
 
   // Handle Quick Approve / Reject decision on callout card
   const handleDecide = async (approvalId: string, decision: 'APPROVED' | 'REJECTED') => {
@@ -145,7 +171,7 @@ export const DashboardPage: React.FC = () => {
       await residentApi.decideApproval(unitId, approvalId, decision);
       toast.success(decision === 'APPROVED' ? 'Visitor entry approved!' : 'Visitor entry rejected.');
 
-      setPendingApprovals((prev) => prev.filter((a) => a.id !== approvalId));
+      setPendingApprovalsCache((prev) => (prev ?? []).filter((a) => a.id !== approvalId));
       if (incomingApproval?.approvalId === approvalId) {
         clearIncomingApproval();
       }
@@ -199,7 +225,7 @@ export const DashboardPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => loadDashboardData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh flat data"

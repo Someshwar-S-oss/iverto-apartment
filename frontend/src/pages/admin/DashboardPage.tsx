@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Layers,
@@ -31,12 +31,18 @@ import { TableSkeleton } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
 import { useToast } from '../../context/ToastContext';
+import { useCache } from '../../context/CacheContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const STATS_KEY = (societyId: string) => `admin/dashboard/stats|society:${societyId}`;
+const LOGS_KEY = (societyId: string) => `admin/dashboard/logs|society:${societyId}`;
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { activeContext } = useRole();
   const { latestEntryEvent, isConnected } = useRealtime();
   const { error: toastError } = useToast();
+  const cache = useCache();
 
   const societyId =
     activeContext?.societyId ||
@@ -44,76 +50,77 @@ export const DashboardPage: React.FC = () => {
     '';
   const societyName = activeContext?.societyName || activeContext?.label || 'Society Admin';
 
-  const [stats, setStats] = useState<SocietyDashboardStats | null>(null);
-  const [recentLogs, setRecentLogs] = useState<EntryEvent[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const statsKey = useMemo(() => STATS_KEY(societyId || 'none'), [societyId]);
+  const logsKey = useMemo(() => LOGS_KEY(societyId || 'none'), [societyId]);
 
-  // Load KPI stats and initial log stream
-  const loadDashboardData = useCallback(
-    async (showRefreshingState = false) => {
-      if (!societyId) {
-        setIsLoading(false);
-        setIsRefreshing(false);
-        return;
-      }
-
-      if (showRefreshingState) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setErrorMessage(null);
-
-      try {
-        const [statsData, logsData] = await Promise.all([
-          societyAdminApi.getDashboardStats(societyId),
-          societyAdminApi.getLogs(societyId, 1, 8),
-        ]);
-
-        setStats(statsData);
-        setRecentLogs(logsData.data || []);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load society dashboard metrics. Please try again.';
-        setErrorMessage(msg);
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
+  const fetchStats = useCallback(
+    () => societyAdminApi.getDashboardStats(societyId),
+    [societyId],
+  );
+  const fetchLogs = useCallback(
+    async () => {
+      const res = await societyAdminApi.getLogs(societyId, 1, 8);
+      return res.data || [];
     },
-    [societyId, toastError],
+    [societyId],
   );
 
-  useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+  const {
+    data: stats,
+    isLoading: isLoadingStats,
+    isRefreshing: isRefreshingStats,
+    error: statsError,
+    refetch: refetchStats,
+  } = useCachedFetch<SocietyDashboardStats>(statsKey, fetchStats, {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
 
-  // Real-time Entry Event listener: Prepend newly received gate events
-  useEffect(() => {
-    if (latestEntryEvent && (!latestEntryEvent.societyId || latestEntryEvent.societyId === societyId)) {
-      setRecentLogs((prev) => {
-        // Prevent duplicate events
-        const exists = prev.some((e) => e.id === latestEntryEvent.id);
-        if (exists) return prev;
-        return [latestEntryEvent, ...prev.slice(0, 7)];
-      });
+  const {
+    data: recentLogs,
+    isLoading: isLoadingLogs,
+    isRefreshing: isRefreshingLogs,
+    refetch: refetchLogs,
+  } = useCachedFetch<EntryEvent[]>(logsKey, fetchLogs, {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
 
-      // Increment today's entries counter in stats
-      setStats((prev) =>
-        prev
-          ? {
-              ...prev,
-              todayEntries: prev.todayEntries + 1,
-            }
-          : null,
-      );
+  const isLoading = isLoadingStats || isLoadingLogs;
+  const isRefreshing = isRefreshingStats || isRefreshingLogs;
+
+  const refresh = useCallback(async () => {
+    await Promise.all([refetchStats(true), refetchLogs(true)]);
+  }, [refetchStats, refetchLogs]);
+
+  // Real-time Entry Event listener: Prepend newly received gate events into the cached entry.
+  React.useEffect(() => {
+    if (!latestEntryEvent || (latestEntryEvent.societyId && latestEntryEvent.societyId !== societyId)) {
+      return;
     }
-  }, [latestEntryEvent, societyId]);
+    const current = cache.get<EntryEvent[]>(logsKey)?.data ?? [];
+    const exists = current.some((e) => e.id === latestEntryEvent.id);
+    if (!exists) {
+      cache.set<EntryEvent[]>(logsKey, [latestEntryEvent, ...current.slice(0, 7)], null);
+    }
+    const currentStats = cache.get<SocietyDashboardStats>(statsKey)?.data;
+    if (currentStats) {
+      cache.set<SocietyDashboardStats>(statsKey, {
+        ...currentStats,
+        todayEntries: currentStats.todayEntries + 1,
+      }, null);
+    }
+  }, [latestEntryEvent, societyId, logsKey, statsKey, cache]);
+
+  const errorMessage = statsError;
+
+  // Surface fetch errors via toast (deduped so we don't spam on every refresh).
+  React.useEffect(() => {
+    if (errorMessage) {
+      toastError(errorMessage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorMessage]);
 
   const getSubjectBadgeVariant = (type?: string): 'brand' | 'warning' | 'info' | 'success' | 'neutral' => {
     switch (type) {
@@ -140,7 +147,7 @@ export const DashboardPage: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => loadDashboardData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh telemetry"
@@ -172,7 +179,7 @@ export const DashboardPage: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => loadDashboardData()}
+            onClick={() => void refresh()}
             className="btn-secondary !text-xs !py-1 !px-2.5 !bg-white hover:!bg-rose-100"
           >
             Retry
@@ -350,7 +357,7 @@ export const DashboardPage: React.FC = () => {
 
           {isLoading ? (
             <TableSkeleton columns={4} rows={5} />
-          ) : recentLogs.length === 0 ? (
+          ) : (recentLogs?.length ?? 0) === 0 ? (
             <div className="text-center py-12 text-gray-400">
               <DoorOpen className="w-12 h-12 mx-auto text-gray-300 mb-2 stroke-[1.5]" />
               <p className="font-semibold text-gray-700">No gate activity logged yet today</p>
@@ -360,7 +367,7 @@ export const DashboardPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-2.5">
-              {recentLogs.map((log) => {
+              {(recentLogs ?? []).map((log: EntryEvent) => {
                 const isEntry = log.direction === 'IN';
                 const displayName =
                   log.visitorName ||

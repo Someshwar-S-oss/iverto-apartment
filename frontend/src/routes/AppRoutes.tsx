@@ -55,9 +55,10 @@ import { KioskPage as GuardKioskPage } from '../pages/guard';
  */
 const RootRedirect: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
-  const { getPrimaryRedirectPath, isLoadingContexts } = useRole();
+  const { getPrimaryRedirectPath, isLoadingContexts, activeContext } = useRole();
 
-  if (isLoading || (isAuthenticated && isLoadingContexts)) {
+  // Only block on the full-screen spinner if we have no cached context to fall back on.
+  if (isLoading || (isAuthenticated && isLoadingContexts && !activeContext)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50/50">
         <CenteredSpinner label="Loading workspace..." size="lg" />

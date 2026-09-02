@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Cpu,
   RefreshCw,
@@ -15,55 +15,36 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
-import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const DEVICES_KEY = (societyId: string) => `admin/devices|society:${societyId}`;
 
 export const DevicesPage: React.FC = () => {
   const { activeContext } = useRole();
   const { deviceHeartbeats } = useRealtime();
-  const { error: toastError } = useToast();
 
   const societyId =
     activeContext?.societyId ||
     (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
     '';
 
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [vendorFilter, setVendorFilter] = useState<string>('ALL');
 
-  // Fetch society devices
-  const fetchDevices = useCallback(
-    async (showRefreshing = false) => {
-      if (!societyId) return;
+  const devicesKey = useMemo(() => DEVICES_KEY(societyId || 'none'), [societyId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const data = await societyAdminApi.getDevices(societyId);
-        setDevices(data);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load provisioned devices.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, toastError],
+  const {
+    data: devicesData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<Device[]>(
+    devicesKey,
+    () => societyAdminApi.getDevices(societyId).then((data) => data || []),
+    { deps: [societyId], skipInitialFetch: !societyId },
   );
 
-  useEffect(() => {
-    fetchDevices();
-  }, [fetchDevices]);
+  const devices = useMemo(() => devicesData ?? [], [devicesData]);
 
   // Determine if device is actively online (< 5 minutes heartbeat)
   const isDeviceOnline = useCallback(
@@ -135,7 +116,7 @@ export const DevicesPage: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => fetchDevices(true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh hardware status"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   KeyRound,
@@ -20,6 +20,9 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const PASSCODES_KEY = (unitId: string) => `resident/passcodes|unit:${unitId}`;
 
 export const PasscodesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -33,9 +36,6 @@ export const PasscodesPage: React.FC = () => {
   const unitNumber = activeContext?.unitNumber || activeContext?.label || 'Flat';
   const societyName = activeContext?.societyName || 'Society';
 
-  const [passcodes, setPasscodes] = useState<Passcode[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'ACTIVE' | 'EXPIRED' | 'REVOKED'>('ALL');
 
@@ -66,34 +66,20 @@ export const PasscodesPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch passcodes
-  const fetchPasscodes = useCallback(
-    async (showRefreshing = false) => {
-      if (!unitId) return;
+  const passcodesKey = useMemo(() => PASSCODES_KEY(unitId || 'none'), [unitId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const data = await residentApi.listPasscodes(unitId);
-        setPasscodes(data || []);
-      } catch (err: any) {
-        console.error('Failed to load passcodes:', err);
-        toastError('Failed to fetch guest passcodes.');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [unitId, toastError],
+  const {
+    data: passcodesData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<Passcode[]>(
+    passcodesKey,
+    () => residentApi.listPasscodes(unitId).then((data) => data || []),
+    { deps: [unitId], skipInitialFetch: !unitId },
   );
 
-  useEffect(() => {
-    fetchPasscodes();
-  }, [fetchPasscodes]);
+  const passcodes = useMemo(() => passcodesData ?? [], [passcodesData]);
 
   // Quick Preset Change
   const handlePresetChange = (preset: '6h' | '12h' | '24h' | 'weekend' | 'custom') => {
@@ -127,7 +113,7 @@ export const PasscodesPage: React.FC = () => {
 
       setIsGenerateModalOpen(false);
       setSelectedPassToShare(created);
-      await fetchPasscodes(true);
+      await refetch(true);
     } catch (err: any) {
       console.error('Failed to create passcode:', err);
       toastError(err.response?.data?.message || 'Failed to generate passcode.');
@@ -143,12 +129,9 @@ export const PasscodesPage: React.FC = () => {
     setIsRevoking(true);
     try {
       await residentApi.revokePasscode(unitId, passcodeToRevoke.id);
-      toastSuccess(`Passcode ${passcodeToRevoke.code} revoked immediately.`);
-
-      setPasscodes((prev) =>
-        prev.map((p) => (p.id === passcodeToRevoke.id ? { ...p, revoked: true } : p)),
-      );
+      toastSuccess(`Passcode ${passcodeToRevoke.code} revoked.`);
       setPasscodeToRevoke(null);
+      await refetch(true);
     } catch (err: any) {
       console.error('Failed to revoke passcode:', err);
       toastError(err.response?.data?.message || 'Failed to revoke passcode.');
@@ -207,7 +190,7 @@ export const PasscodesPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => fetchPasscodes(true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh passcodes"

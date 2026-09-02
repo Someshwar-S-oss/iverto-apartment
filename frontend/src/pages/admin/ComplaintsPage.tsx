@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   MessageSquareWarning,
   Clock,
@@ -16,6 +16,9 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const COMPLAINTS_KEY = (societyId: string) => `admin/complaints|society:${societyId}`;
 
 export const ComplaintsPage: React.FC = () => {
   const { activeContext } = useRole();
@@ -26,9 +29,6 @@ export const ComplaintsPage: React.FC = () => {
     (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
     '';
 
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -39,37 +39,20 @@ export const ComplaintsPage: React.FC = () => {
   const [adminNotesInput, setAdminNotesInput] = useState<string>('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
-  // Fetch complaints
-  const fetchComplaints = useCallback(
-    async (showRefreshing = false) => {
-      if (!societyId) return;
+  const complaintsKey = useMemo(() => COMPLAINTS_KEY(societyId || 'none'), [societyId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const data = await societyAdminApi.getComplaints(societyId);
-        setComplaints(data);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load resident complaints.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, toastError],
+  const {
+    data: complaintsData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<Complaint[]>(
+    complaintsKey,
+    () => societyAdminApi.getComplaints(societyId).then((data) => data || []),
+    { deps: [societyId], skipInitialFetch: !societyId },
   );
 
-  useEffect(() => {
-    fetchComplaints();
-  }, [fetchComplaints]);
+  const complaints = useMemo(() => complaintsData ?? [], [complaintsData]);
 
   // Open Status update modal
   const openStatusModal = (complaint: Complaint) => {
@@ -94,7 +77,7 @@ export const ComplaintsPage: React.FC = () => {
 
       toastSuccess(`Complaint status updated to ${newStatus}.`);
       setSelectedComplaint(null);
-      await fetchComplaints(true);
+      await refetch(true);
     } catch (err: any) {
       toastError('Failed to update complaint status.');
     } finally {
@@ -110,6 +93,7 @@ export const ComplaintsPage: React.FC = () => {
         c.title.toLowerCase().includes(q) ||
         c.description.toLowerCase().includes(q) ||
         (c.unitNumber && c.unitNumber.toLowerCase().includes(q)) ||
+        (c.buildingName && c.buildingName.toLowerCase().includes(q)) ||
         c.residentName.toLowerCase().includes(q);
 
       const matchStatus =
@@ -125,11 +109,11 @@ export const ComplaintsPage: React.FC = () => {
   const getStatusBadge = (status: ComplaintStatus) => {
     switch (status) {
       case 'OPEN':
-        return <Badge variant="danger" size="sm" dot>OPEN</Badge>;
+        return <Badge variant="danger" size="sm">OPEN</Badge>;
       case 'IN_PROGRESS':
-        return <Badge variant="warning" size="sm" dot>IN PROGRESS</Badge>;
+        return <Badge variant="warning" size="sm">IN PROGRESS</Badge>;
       case 'RESOLVED':
-        return <Badge variant="success" size="sm" dot>RESOLVED</Badge>;
+        return <Badge variant="success" size="sm">RESOLVED</Badge>;
       case 'CLOSED':
         return <Badge variant="neutral" size="sm">CLOSED</Badge>;
       default:
@@ -146,8 +130,9 @@ export const ComplaintsPage: React.FC = () => {
       case 'MEDIUM':
         return <Badge variant="info" size="sm">MEDIUM</Badge>;
       case 'LOW':
-      default:
         return <Badge variant="neutral" size="sm">LOW</Badge>;
+      default:
+        return <Badge variant="neutral" size="sm">{priority}</Badge>;
     }
   };
 
@@ -155,13 +140,13 @@ export const ComplaintsPage: React.FC = () => {
     <div className="space-y-8 animate-fade-in-up pb-12">
       {/* Page Header */}
       <PageHeader
-        title="Resident Complaints & Helpdesk"
-        subtitle="Track maintenance requests, plumbing/electrical issues, and community tickets"
+        title="Resident Maintenance Complaints"
+        subtitle="Manage and resolve residential tickets, maintenance requests, and work orders"
         actions={
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => fetchComplaints(true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh tickets"

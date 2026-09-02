@@ -30,7 +30,7 @@ export class ApiError extends Error {
  * BaseURL falls back to empty string to leverage Vite's local dev proxy (/api).
  */
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: (import.meta.env.VITE_API_URL || '').replace(/\/+$/, ''),
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -42,7 +42,7 @@ export const apiClient: AxiosInstance = axios.create({
 // the refresh call itself, so a failed refresh can never re-trigger the same 401 →
 // refresh → 401 handling that exists to rescue every *other* request.
 const refreshClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: (import.meta.env.VITE_API_URL || '').replace(/\/+$/, ''),
   headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
   timeout: 30000,
 });

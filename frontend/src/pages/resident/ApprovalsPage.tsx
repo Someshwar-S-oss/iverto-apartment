@@ -24,12 +24,18 @@ import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/S
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
 import { useToast } from '../../context/ToastContext';
+import { useCache } from '../../context/CacheContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { playAllowChime, playDenyChime } from '../../components/real-time/SoundEffects';
+
+const PENDING_KEY = (unitId: string) => `resident/approvals/pending|unit:${unitId}`;
+const HISTORY_KEY = (unitId: string) => `resident/approvals/history|unit:${unitId}`;
 
 export const ApprovalsPage: React.FC = () => {
   const { activeContext } = useRole();
   const { incomingApproval, clearIncomingApproval } = useRealtime();
   const toast = useToast();
+  const cache = useCache();
 
   const unitId =
     activeContext?.unitId ||
@@ -38,10 +44,6 @@ export const ApprovalsPage: React.FC = () => {
   const unitNumber = activeContext?.unitNumber || activeContext?.label || 'My Flat';
 
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
-  const [pendingList, setPendingList] = useState<Approval[]>([]);
-  const [historyList, setHistoryList] = useState<EntryEvent[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
@@ -52,48 +54,51 @@ export const ApprovalsPage: React.FC = () => {
     time?: string;
   } | null>(null);
 
-  // Load Pending Approvals and Decision History
-  const fetchData = useCallback(
-    async (showRefreshing = false) => {
-      if (!unitId) return;
+  const pendingKey = useMemo(() => PENDING_KEY(unitId || 'none'), [unitId]);
+  const historyKey = useMemo(() => HISTORY_KEY(unitId || 'none'), [unitId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const [pendingData, eventsData] = await Promise.all([
-          residentApi.getPendingApprovals(unitId).catch(() => []),
-          residentApi.getEntryEvents(unitId, 1, 50).catch(() => ({ data: [], total: 0 })),
-        ]);
-
-        setPendingList(pendingData || []);
-        // Filter history for entries that have approval status or were decided
-        setHistoryList(eventsData.data || []);
-      } catch (err: any) {
-        console.error('Failed to load approvals:', err);
-        toast.error('Failed to fetch approvals. Please retry.');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [unitId, toast],
+  const {
+    data: pendingData,
+    isLoading: isLoadingPending,
+    isRefreshing: isRefreshingPending,
+    refetch: refetchPending,
+  } = useCachedFetch<Approval[]>(
+    pendingKey,
+    () => residentApi.getPendingApprovals(unitId).catch(() => []),
+    { deps: [unitId], skipInitialFetch: !unitId },
   );
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const {
+    data: historyData,
+    isLoading: isLoadingHistory,
+    isRefreshing: isRefreshingHistory,
+    refetch: refetchHistory,
+  } = useCachedFetch<EntryEvent[]>(
+    historyKey,
+    async () => {
+      const res = await residentApi.getEntryEvents(unitId, 1, 50).catch(() => ({ data: [], total: 0 }));
+      return res.data || [];
+    },
+    { deps: [unitId], skipInitialFetch: !unitId },
+  );
+
+  const isLoading = isLoadingPending || isLoadingHistory;
+  const isRefreshing = isRefreshingPending || isRefreshingHistory;
+
+  const pendingList: Approval[] = useMemo(() => pendingData ?? [], [pendingData]);
+  const historyList: EntryEvent[] = useMemo(() => historyData ?? [], [historyData]);
+
+  const refresh = useCallback(
+    () => Promise.all([refetchPending(true), refetchHistory(true)]),
+    [refetchPending, refetchHistory],
+  );
 
   // Real-time synchronization with WebSocket incomingApproval
   useEffect(() => {
     if (incomingApproval && (!incomingApproval.unitId || incomingApproval.unitId === unitId)) {
-      setPendingList((prev) => {
-        const exists = prev.some((a) => a.id === incomingApproval.approvalId);
-        if (exists) return prev;
-
+      const current = cache.get<Approval[]>(pendingKey)?.data ?? [];
+      const exists = current.some((a) => a.id === incomingApproval.approvalId);
+      if (!exists) {
         const newApproval: Approval = {
           id: incomingApproval.approvalId,
           entryEventId: incomingApproval.entryEventId,
@@ -107,10 +112,10 @@ export const ApprovalsPage: React.FC = () => {
           platform: incomingApproval.platform as any,
           unitNumber: incomingApproval.unitNumber,
         };
-        return [newApproval, ...prev];
-      });
+        cache.set<Approval[]>(pendingKey, [newApproval, ...current], null);
+      }
     }
-  }, [incomingApproval, unitId]);
+  }, [incomingApproval, unitId, pendingKey, cache]);
 
   // Handle Decision (Approve / Reject)
   const handleDecision = async (approvalId: string, decision: 'APPROVED' | 'REJECTED') => {
@@ -129,15 +134,19 @@ export const ApprovalsPage: React.FC = () => {
         decision === 'APPROVED' ? 'Visitor entry authorized!' : 'Visitor entry rejected.',
       );
 
-      // Remove from pending list
-      setPendingList((prev) => prev.filter((a) => a.id !== approvalId));
+      // Remove from pending list (write to cache so other subscribers update).
+      cache.set<Approval[]>(
+        pendingKey,
+        (cache.get<Approval[]>(pendingKey)?.data ?? []).filter((a) => a.id !== approvalId),
+        null,
+      );
       if (incomingApproval?.approvalId === approvalId) {
         clearIncomingApproval();
       }
 
       // Refresh history in background
       residentApi.getEntryEvents(unitId, 1, 50).then((res) => {
-        if (res.data) setHistoryList(res.data);
+        if (res.data) cache.set<EntryEvent[]>(historyKey, res.data, null);
       });
     } catch (err: any) {
       console.error('Failed to decide approval:', err);
@@ -197,7 +206,7 @@ export const ApprovalsPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => fetchData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh approvals"

@@ -27,6 +27,10 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const NOTICES_KEY = (unitId: string) => `resident/community/notices|unit:${unitId}`;
+const COMPLAINTS_KEY = (unitId: string) => `resident/community/complaints|unit:${unitId}`;
 
 export const CommunityPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -41,10 +45,6 @@ export const CommunityPage: React.FC = () => {
   const societyName = activeContext?.societyName || 'Society';
 
   const [activeTab, setActiveTab] = useState<'notices' | 'complaints'>('notices');
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Notice Read Modal
@@ -83,40 +83,41 @@ export const CommunityPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch notices & complaints — both scoped server-side to this resident's own unit
-  // and society (see mobile-resident.controller.ts), so no client-side filtering needed.
-  const fetchCommunityData = useCallback(
-    async (showRefreshing = false) => {
-      if (!unitId) return;
+  const noticesKey = useMemo(() => NOTICES_KEY(unitId || 'none'), [unitId]);
+  const complaintsKey = useMemo(() => COMPLAINTS_KEY(unitId || 'none'), [unitId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const [noticesData, complaintsData] = await Promise.all([
-          residentApi.getNotices(unitId).catch(() => []),
-          residentApi.getComplaints(unitId).catch(() => []),
-        ]);
-
-        setNotices(noticesData || []);
-        setComplaints(complaintsData || []);
-      } catch (err: any) {
-        console.error('Failed to load community updates:', err);
-        toastError('Failed to fetch community updates.');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [unitId, toastError],
+  const {
+    data: noticesData,
+    isLoading: isLoadingNotices,
+    isRefreshing: isRefreshingNotices,
+    refetch: refetchNotices,
+  } = useCachedFetch<Notice[]>(
+    noticesKey,
+    () => residentApi.getNotices(unitId).then((data) => data || []),
+    { deps: [unitId], skipInitialFetch: !unitId },
   );
 
-  useEffect(() => {
-    fetchCommunityData();
-  }, [fetchCommunityData]);
+  const {
+    data: complaintsData,
+    isLoading: isLoadingComplaints,
+    isRefreshing: isRefreshingComplaints,
+    refetch: refetchComplaints,
+  } = useCachedFetch<Complaint[]>(
+    complaintsKey,
+    () => residentApi.getComplaints(unitId).then((data) => data || []),
+    { deps: [unitId], skipInitialFetch: !unitId },
+  );
+
+  const notices = useMemo(() => noticesData ?? [], [noticesData]);
+  const complaints = useMemo(() => complaintsData ?? [], [complaintsData]);
+
+  const isLoading = isLoadingNotices || isLoadingComplaints;
+  const isRefreshing = isRefreshingNotices || isRefreshingComplaints;
+
+  const refresh = useCallback(
+    () => Promise.all([refetchNotices(true), refetchComplaints(true)]),
+    [refetchNotices, refetchComplaints],
+  );
 
   // Handle Submit New Complaint
   const handleRaiseComplaint = async (e: React.FormEvent) => {
@@ -140,7 +141,7 @@ export const CommunityPage: React.FC = () => {
         category: 'PLUMBING',
         priority: 'MEDIUM',
       });
-      await fetchCommunityData(true);
+      await refetchComplaints(true);
     } catch (err: any) {
       console.error('Failed to raise complaint:', err);
       toastError(err.response?.data?.message || 'Failed to submit complaint.');
@@ -224,7 +225,7 @@ export const CommunityPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => fetchCommunityData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh community board"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   DoorOpen,
   Plus,
@@ -16,6 +16,9 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { EmptyState, NoResultsState, TableSkeleton } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const GATES_KEY = (societyId: string) => `admin/gates|society:${societyId}`;
 
 export const GatesPage: React.FC = () => {
   const { activeContext } = useRole();
@@ -26,9 +29,6 @@ export const GatesPage: React.FC = () => {
     (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
     '';
 
-  const [gates, setGates] = useState<Gate[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Create/Edit Gate Modal
@@ -41,36 +41,20 @@ export const GatesPage: React.FC = () => {
   const [gateToDelete, setGateToDelete] = useState<Gate | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-  const fetchGates = useCallback(
-    async (showRefreshing = false) => {
-      if (!societyId) return;
+  const gatesKey = useMemo(() => GATES_KEY(societyId || 'none'), [societyId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const data = await societyAdminApi.getGates(societyId);
-        setGates(data || []);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load gates.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, toastError],
+  const {
+    data: gatesData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<Gate[]>(
+    gatesKey,
+    () => societyAdminApi.getGates(societyId).then((data) => data || []),
+    { deps: [societyId], skipInitialFetch: !societyId },
   );
 
-  useEffect(() => {
-    fetchGates();
-  }, [fetchGates]);
+  const gates = useMemo(() => gatesData ?? [], [gatesData]);
 
   const openCreateModal = () => {
     setEditingGate(null);
@@ -107,7 +91,7 @@ export const GatesPage: React.FC = () => {
       setIsFormModalOpen(false);
       setFormData({ name: '', description: '' });
       setEditingGate(null);
-      await fetchGates(true);
+      await refetch(true);
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -126,7 +110,7 @@ export const GatesPage: React.FC = () => {
       await societyAdminApi.deleteGate(societyId, gateToDelete.id);
       toastSuccess(`Gate "${gateToDelete.name}" deleted.`);
       setGateToDelete(null);
-      await fetchGates(true);
+      await refetch(true);
     } catch (err: any) {
       toastError('Failed to delete gate.');
     } finally {
@@ -153,7 +137,7 @@ export const GatesPage: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => fetchGates(true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh gates"

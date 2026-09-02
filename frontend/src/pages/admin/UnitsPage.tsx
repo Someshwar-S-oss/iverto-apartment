@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Layers,
   Building2,
@@ -17,6 +17,10 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const UNITS_KEY = (societyId: string) => `admin/units|society:${societyId}`;
+const BUILDINGS_KEY = (societyId: string) => `admin/buildings|society:${societyId}`;
 
 export const UnitsPage: React.FC = () => {
   const { activeContext } = useRole();
@@ -28,10 +32,6 @@ export const UnitsPage: React.FC = () => {
     '';
 
   const [activeTab, setActiveTab] = useState<'units' | 'buildings'>('units');
-  const [units, setUnits] = useState<Unit[]>([]);
-  const [buildings, setBuildings] = useState<Building[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedBuildingFilter, setSelectedBuildingFilter] = useState<string>('ALL');
 
@@ -47,41 +47,39 @@ export const UnitsPage: React.FC = () => {
   const [unitNumberInput, setUnitNumberInput] = useState<string>('');
   const [isCreatingUnit, setIsCreatingUnit] = useState<boolean>(false);
 
-  // Fetch units and buildings
-  const loadData = useCallback(
-    async (showRefreshing = false) => {
-      if (!societyId) return;
+  const unitsKey = useMemo(() => UNITS_KEY(societyId || 'none'), [societyId]);
+  const buildingsKey = useMemo(() => BUILDINGS_KEY(societyId || 'none'), [societyId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
+  const {
+    data: unitsData,
+    isLoading: isLoadingUnits,
+    isRefreshing: isRefreshingUnits,
+    refetch: refetchUnits,
+  } = useCachedFetch<Unit[]>(unitsKey, () => societyAdminApi.getUnits(societyId), {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
 
-      try {
-        const [unitsData, buildingsData] = await Promise.all([
-          societyAdminApi.getUnits(societyId),
-          societyAdminApi.getBuildings(societyId).catch(() => []),
-        ]);
-        setUnits(unitsData);
-        setBuildings(buildingsData);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load units and buildings. Please try again.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, toastError],
-  );
+  const {
+    data: buildingsData,
+    isLoading: isLoadingBuildings,
+    isRefreshing: isRefreshingBuildings,
+    refetch: refetchBuildings,
+  } = useCachedFetch<Building[]>(buildingsKey, () => societyAdminApi.getBuildings(societyId).catch(() => []), {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const isLoading = isLoadingUnits || isLoadingBuildings;
+  const isRefreshing = isRefreshingUnits || isRefreshingBuildings;
+
+  const refresh = useCallback(async () => {
+    await Promise.all([refetchUnits(true), refetchBuildings(true)]);
+  }, [refetchUnits, refetchBuildings]);
+
+  // Safe defaults for downstream usage (units/buildings may be undefined before first fetch).
+  const units: Unit[] = useMemo(() => unitsData ?? [], [unitsData]);
+  const buildings: Building[] = useMemo(() => buildingsData ?? [], [buildingsData]);
 
   // Sorted list of buildings
   const sortedBuildings = useMemo(() => {
@@ -124,7 +122,7 @@ export const UnitsPage: React.FC = () => {
       setBuildingNameInput('');
       setIsBuildingModalOpen(false);
       setSelectedBuildingIdForUnit(newBuilding.id);
-      await loadData(true);
+      await refresh();
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -151,7 +149,7 @@ export const UnitsPage: React.FC = () => {
       toastSuccess(`Unit "${newUnit.unitNumber}" added successfully.`);
       setUnitNumberInput('');
       setIsUnitModalOpen(false);
-      await loadData(true);
+      await refresh();
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -180,7 +178,7 @@ export const UnitsPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => loadData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh units and buildings"

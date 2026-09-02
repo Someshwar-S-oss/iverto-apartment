@@ -56,8 +56,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to="/force-change-password" replace />;
   }
 
-  // 4. If context data is still resolving, show loader for role-gated routes
-  if (isLoadingContexts && (allowedRoles || allowedScopes || requireSuperadmin)) {
+// 4. If context data is still resolving, show loader for role-gated routes.
+  //    Skip the blocking spinner when we already have a cached active context
+  //    so the page can render with the previous state and refetch in the background.
+  if (isLoadingContexts && (allowedRoles || allowedScopes || requireSuperadmin) && !activeContext) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50/50">
         <CenteredSpinner label="Loading workspace..." size="lg" />

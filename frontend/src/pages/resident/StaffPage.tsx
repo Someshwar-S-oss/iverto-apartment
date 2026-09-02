@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Users,
   RefreshCw,
@@ -16,10 +16,13 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const STAFF_KEY = (unitId: string) => `resident/staff|unit:${unitId}`;
 
 export const StaffPage: React.FC = () => {
   const { activeContext } = useRole();
-  const { success: toastSuccess, error: toastError } = useToast();
+  const { success: toastSuccess } = useToast();
 
   const unitId =
     activeContext?.unitId ||
@@ -27,9 +30,6 @@ export const StaffPage: React.FC = () => {
     '';
   const unitNumber = activeContext?.unitNumber || activeContext?.label || 'Flat';
 
-  const [assignedStaff, setAssignedStaff] = useState<Staff[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
 
@@ -47,34 +47,20 @@ export const StaffPage: React.FC = () => {
     }
   });
 
-  // Fetch assigned staff for this unit
-  const fetchAssignedStaff = useCallback(
-    async (showRefreshing = false) => {
-      if (!unitId) return;
+  const staffKey = useMemo(() => STAFF_KEY(unitId || 'none'), [unitId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const data = await residentApi.getStaff(unitId);
-        setAssignedStaff(data || []);
-      } catch (err: any) {
-        console.error('Failed to fetch assigned household staff:', err);
-        toastError('Failed to load household staff roster.');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [unitId, toastError],
+  const {
+    data: staffData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<Staff[]>(
+    staffKey,
+    () => residentApi.getStaff(unitId).then((data) => data || []),
+    { deps: [unitId], skipInitialFetch: !unitId },
   );
 
-  useEffect(() => {
-    fetchAssignedStaff();
-  }, [fetchAssignedStaff]);
+  const assignedStaff = useMemo(() => staffData ?? [], [staffData]);
 
   // Toggle notification for a staff member
   const toggleNotification = (staffId: string) => {
@@ -132,7 +118,7 @@ export const StaffPage: React.FC = () => {
         actions={
           <button
             type="button"
-            onClick={() => fetchAssignedStaff(true)}
+            onClick={() => void refetch(true)}
             disabled={isLoading || isRefreshing}
             className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
             title="Refresh staff roster"

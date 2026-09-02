@@ -1,20 +1,22 @@
 import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
-import { ToastProvider, AuthProvider, RoleProvider, RealtimeProvider } from './context';
+import { ToastProvider, AuthProvider, RoleProvider, RealtimeProvider, CacheProvider } from './context';
 import { AppRoutes } from './routes';
 
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
-      <ToastProvider>
-        <AuthProvider>
-          <RoleProvider>
-            <RealtimeProvider>
-              <AppRoutes />
-            </RealtimeProvider>
-          </RoleProvider>
-        </AuthProvider>
-      </ToastProvider>
+      <CacheProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <RoleProvider>
+              <RealtimeProvider>
+                <AppRoutes />
+              </RealtimeProvider>
+            </RoleProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </CacheProvider>
     </BrowserRouter>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
@@ -21,56 +21,55 @@ import type { Society, SuperadminAnalytics } from '../../api/types';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Badge } from '../../components/ui/Badge';
 import { TableSkeleton } from '../../components/ui/States';
-import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const ANALYTICS_KEY = 'superadmin/overview/analytics';
+const SOCIETIES_KEY = 'superadmin/overview/societies';
 
 export const OverviewPage: React.FC = () => {
   const navigate = useNavigate();
-  const { error: toastError } = useToast();
 
-  const [analytics, setAnalytics] = useState<SuperadminAnalytics | null>(null);
-  const [recentSocieties, setRecentSocieties] = useState<Society[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const {
+    data: analyticsData,
+    isLoading: isLoadingAnalytics,
+    isRefreshing: isRefreshingAnalytics,
+    error: analyticsError,
+    refetch: refetchAnalytics,
+  } = useCachedFetch<SuperadminAnalytics>(
+    ANALYTICS_KEY,
+    () => superadminApi.getAnalytics(),
+  );
 
-  const loadData = useCallback(async (showRefreshingState = false) => {
-    if (showRefreshingState) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
-    setErrorMessage(null);
+  const {
+    data: societiesData,
+    isLoading: isLoadingSocieties,
+    isRefreshing: isRefreshingSocieties,
+    error: societiesError,
+    refetch: refetchSocieties,
+  } = useCachedFetch<Society[]>(
+    SOCIETIES_KEY,
+    () => superadminApi.getSocieties().then((data) => data || []),
+  );
 
-    try {
-      const [analyticsData, societiesData] = await Promise.all([
-        superadminApi.getAnalytics(),
-        superadminApi.getSocieties(),
-      ]);
+  const analytics = analyticsData ?? null;
+  const recentSocieties = useMemo(() => {
+    if (!societiesData) return [];
+    const sorted = [...societiesData].sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA;
+    });
+    return sorted.slice(0, 5);
+  }, [societiesData]);
 
-      setAnalytics(analyticsData);
-      // Sort recent societies by createdAt desc
-      const sorted = [...societiesData].sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return dateB - dateA;
-      });
-      setRecentSocieties(sorted.slice(0, 5));
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        'Failed to load platform analytics. Please try again.';
-      setErrorMessage(msg);
-      toastError(msg);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [toastError]);
+  const isLoading = isLoadingAnalytics || isLoadingSocieties;
+  const isRefreshing = isRefreshingAnalytics || isRefreshingSocieties;
+  const errorMessage = analyticsError || societiesError;
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const refresh = useCallback(
+    () => Promise.all([refetchAnalytics(true), refetchSocieties(true)]),
+    [refetchAnalytics, refetchSocieties],
+  );
 
   // Hourly throughput simulation bars for visualization
   const throughputData = [
@@ -99,7 +98,7 @@ export const OverviewPage: React.FC = () => {
           <>
             <button
               type="button"
-              onClick={() => loadData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh telemetry"
@@ -120,7 +119,7 @@ export const OverviewPage: React.FC = () => {
             <button
               type="button"
               onClick={() => navigate('/superadmin/devices?action=provision')}
-              className="btn-secondary text-xs sm:text-sm !py-2 !px-4 flex items-center gap-2 !border-gray-300"
+              className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
             >
               <Cpu className="w-4 h-4 text-gray-700" />
               <span>Provision M50</span>
@@ -139,7 +138,7 @@ export const OverviewPage: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => loadData()}
+            onClick={() => void refresh()}
             className="btn-secondary !text-xs !py-1 !px-2.5 !bg-white hover:!bg-rose-100"
           >
             Retry

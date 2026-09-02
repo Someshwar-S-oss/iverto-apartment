@@ -26,6 +26,11 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const UNITS_KEY = (societyId: string) => `admin/users/units|society:${societyId}`;
+const ROSTER_KEY = (societyId: string) => `admin/users/roster|society:${societyId}`;
+const GATES_KEY = (societyId: string) => `admin/users/gates|society:${societyId}`;
 
 export interface SocietyUserRosterItem {
   id: string;
@@ -52,11 +57,6 @@ export const UsersPage: React.FC = () => {
     (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
     '';
 
-  const [units, setUnits] = useState<Unit[]>([]);
-  const [gates, setGates] = useState<Gate[]>([]);
-  const [roster, setRoster] = useState<SocietyUserRosterItem[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
 
@@ -92,43 +92,51 @@ export const UsersPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Load Units and Roster data
-  const loadData = useCallback(
-    async (showRefreshing = false) => {
-      if (!societyId) return;
+  const unitsKey = useMemo(() => UNITS_KEY(societyId || 'none'), [societyId]);
+  const rosterKey = useMemo(() => ROSTER_KEY(societyId || 'none'), [societyId]);
+  const gatesKey = useMemo(() => GATES_KEY(societyId || 'none'), [societyId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
+  const {
+    data: unitsData,
+    isLoading: isLoadingUnits,
+    isRefreshing: isRefreshingUnits,
+    refetch: refetchUnits,
+  } = useCachedFetch<Unit[]>(unitsKey, () => societyAdminApi.getUnits(societyId).catch(() => []), {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
 
-      try {
-        const [unitsData, usersData, gatesData] = await Promise.all([
-          societyAdminApi.getUnits(societyId).catch(() => []),
-          societyAdminApi.getUsers(societyId).catch(() => []),
-          societyAdminApi.getGates(societyId).catch(() => []),
-        ]);
-        setUnits(unitsData);
-        setRoster(usersData);
-        setGates(gatesData);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load directory.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, toastError],
+  const {
+    data: rosterData,
+    isLoading: isLoadingRoster,
+    isRefreshing: isRefreshingRoster,
+    refetch: refetchRoster,
+  } = useCachedFetch<SocietyUserRosterItem[]>(
+    rosterKey,
+    () => societyAdminApi.getUsers(societyId).catch(() => []),
+    { deps: [societyId], skipInitialFetch: !societyId },
   );
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const {
+    data: gatesData,
+    isLoading: isLoadingGates,
+    isRefreshing: isRefreshingGates,
+    refetch: refetchGates,
+  } = useCachedFetch<Gate[]>(gatesKey, () => societyAdminApi.getGates(societyId).catch(() => []), {
+    deps: [societyId],
+    skipInitialFetch: !societyId,
+  });
+
+  const isLoading = isLoadingUnits || isLoadingRoster || isLoadingGates;
+  const isRefreshing = isRefreshingUnits || isRefreshingRoster || isRefreshingGates;
+
+  const units: Unit[] = useMemo(() => unitsData ?? [], [unitsData]);
+  const roster: SocietyUserRosterItem[] = useMemo(() => rosterData ?? [], [rosterData]);
+  const gates: Gate[] = useMemo(() => gatesData ?? [], [gatesData]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([refetchUnits(true), refetchRoster(true), refetchGates(true)]);
+  }, [refetchUnits, refetchRoster, refetchGates]);
 
   const isResidentRole = useMemo(() => {
     return ['OWNER', 'TENANT', 'FAMILY'].includes(formData.role);
@@ -161,7 +169,7 @@ export const UsersPage: React.FC = () => {
       });
 
       // Reload live roster from database
-      await loadData();
+      await refresh();
 
       // Show temporary credentials modal
       const tempPass = response.tempPassword || `${formData.phone.trim()}@iverto`;
@@ -214,7 +222,7 @@ export const UsersPage: React.FC = () => {
           : `${reassigningGuard.name} is now unrestricted (every gate in this society).`,
       );
       setReassigningGuard(null);
-      await loadData(true);
+      await refresh();
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -290,7 +298,7 @@ export const UsersPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => loadData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh roster"

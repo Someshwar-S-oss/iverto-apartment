@@ -86,7 +86,7 @@ export const NotFoundPage: React.FC = () => {
 
           {/* Context Note */}
           <div className="mt-8 pt-6 border-t border-gray-100 text-xs text-gray-400">
-            iverto Gate & Community Access Platform
+            iverto.ai Gate & Community Access Platform
           </div>
         </div>
       </div>

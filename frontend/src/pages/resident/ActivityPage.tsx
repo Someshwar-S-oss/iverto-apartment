@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowDownLeft,
@@ -22,13 +22,17 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
-import { useToast } from '../../context/ToastContext';
+import { useCache } from '../../context/CacheContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const EVENTS_KEY = (unitId: string, page: number) => `resident/activity/events|unit:${unitId}|page:${page}`;
+const TOTAL_KEY = (unitId: string) => `resident/activity/total|unit:${unitId}`;
 
 export const ActivityPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { activeContext } = useRole();
   const { latestEntryEvent } = useRealtime();
-  const toast = useToast();
+  const cache = useCache();
 
   const unitId =
     activeContext?.unitId ||
@@ -36,12 +40,7 @@ export const ActivityPage: React.FC = () => {
     '';
   const unitNumber = activeContext?.unitNumber || activeContext?.label || 'Flat';
 
-  const [events, setEvents] = useState<EntryEvent[]>([]);
   const [page, setPage] = useState<number>(1);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [totalCount, setTotalCount] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -51,49 +50,42 @@ export const ActivityPage: React.FC = () => {
   // Photo / Event Detail Modal
   const [selectedEventModal, setSelectedEventModal] = useState<EntryEvent | null>(null);
 
-  const fetchEvents = useCallback(
-    async (pageNumber = 1, showRefreshing = false) => {
-      if (!unitId) return;
+  const eventsKey = useMemo(() => EVENTS_KEY(unitId || 'none', page), [unitId, page]);
+  const totalKey = useMemo(() => TOTAL_KEY(unitId || 'none'), [unitId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
+  const {
+    data: eventsData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<EntryEvent[]>(
+    eventsKey,
+    async () => {
+      const res = await residentApi.getEntryEvents(unitId, page, 15);
+      if (typeof res.total === 'number') {
+        cache.set<number>(totalKey, res.total, null);
       }
-
-      try {
-        const res = await residentApi.getEntryEvents(unitId, pageNumber, 15);
-        setEvents(res.data || []);
-        const total = res.total ?? res.data?.length ?? 0;
-        setTotalCount(total);
-        setTotalPages(Math.max(1, Math.ceil(total / 15)));
-        setPage(pageNumber);
-      } catch (err: any) {
-        console.error('Failed to load entry events:', err);
-        toast.error('Failed to load entry logs.');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
+      return res.data || [];
     },
-    [unitId, toast],
+    { deps: [unitId, page], skipInitialFetch: !unitId },
   );
 
-  useEffect(() => {
-    fetchEvents(page);
-  }, [fetchEvents, page]);
+  const events = useMemo(() => eventsData ?? [], [eventsData]);
+  const totalCount = cache.get<number>(totalKey)?.data ?? events.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / 15));
 
   // Real-time new event listener
   useEffect(() => {
     if (latestEntryEvent && (!latestEntryEvent.unitId || latestEntryEvent.unitId === unitId)) {
-      setEvents((prev) => {
-        const exists = prev.some((e) => e.id === latestEntryEvent.id);
-        if (exists) return prev;
-        return [latestEntryEvent, ...prev];
-      });
-      setTotalCount((prev) => prev + 1);
+      const current = cache.get<EntryEvent[]>(eventsKey)?.data ?? [];
+      const exists = current.some((e) => e.id === latestEntryEvent.id);
+      if (!exists && page === 1) {
+        cache.set<EntryEvent[]>(eventsKey, [latestEntryEvent, ...current], null);
+        const currentTotal = cache.get<number>(totalKey)?.data ?? 0;
+        cache.set<number>(totalKey, currentTotal + 1, null);
+      }
     }
-  }, [latestEntryEvent, unitId]);
+  }, [latestEntryEvent, unitId, eventsKey, totalKey, page, cache]);
 
   // Check URL query param ?id=... to auto-open event preview
   useEffect(() => {
@@ -150,7 +142,7 @@ export const ActivityPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => fetchEvents(page, true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh timeline"

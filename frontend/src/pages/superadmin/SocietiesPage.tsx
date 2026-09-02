@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Building2,
@@ -27,6 +27,9 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const SOCIETIES_KEY = 'superadmin/societies';
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'SUSPENDED';
 
@@ -46,9 +49,6 @@ export const SocietiesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { success: toastSuccess, error: toastError } = useToast();
 
-  const [societies, setSocieties] = useState<Society[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
@@ -87,32 +87,17 @@ export const SocietiesPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch societies
-  const fetchSocieties = useCallback(async (showRefreshing = false) => {
-    if (showRefreshing) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
+  const {
+    data: societiesData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<Society[]>(
+    SOCIETIES_KEY,
+    () => superadminApi.getSocieties().then((data) => data || []),
+  );
 
-    try {
-      const data = await superadminApi.getSocieties();
-      setSocieties(data);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        'Failed to fetch societies list.';
-      toastError(msg);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [toastError]);
-
-  useEffect(() => {
-    fetchSocieties();
-  }, [fetchSocieties]);
+  const societies = useMemo(() => societiesData ?? [], [societiesData]);
 
   // Form Validation
   const validateForm = (): boolean => {
@@ -167,13 +152,13 @@ export const SocietiesPage: React.FC = () => {
       setFormErrors({});
       setIsOnboardOpen(false);
 
-      // Show success modal with master credentials
+      // Show success modal with master admin credentials
       setCreatedSocietyData(res);
       setIsSuccessModalOpen(true);
       toastSuccess(`Society "${res.society.name}" onboarded successfully!`);
 
-      // Refresh list
-      fetchSocieties();
+      // Refresh table
+      await refetch(true);
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -182,6 +167,33 @@ export const SocietiesPage: React.FC = () => {
       toastError(msg);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Status toggle handler (Activate / Suspend)
+  const handleToggleStatus = async () => {
+    if (!societyToToggle) return;
+
+    const newStatus = societyToToggle.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    setIsTogglingStatus(true);
+
+    try {
+      await superadminApi.updateSocietyStatus(societyToToggle.id, newStatus);
+      toastSuccess(
+        `Society "${societyToToggle.name}" has been ${
+          newStatus === 'ACTIVE' ? 'activated' : 'suspended'
+        }.`,
+      );
+      setSocietyToToggle(null);
+      await refetch(true);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to update society status.';
+      toastError(msg);
+    } finally {
+      setIsTogglingStatus(false);
     }
   };
 
@@ -205,38 +217,6 @@ Login URL: ${window.location.origin}/login`;
       toastSuccess('Credentials copied to clipboard!');
       setTimeout(() => setIsCopied(false), 3000);
     });
-  };
-
-  // Status toggle handler
-  const handleToggleStatus = async () => {
-    if (!societyToToggle) return;
-
-    const targetStatus = societyToToggle.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
-    setIsTogglingStatus(true);
-
-    try {
-      const updated = await superadminApi.updateSocietyStatus(
-        societyToToggle.id,
-        targetStatus,
-      );
-
-      setSocieties((prev) =>
-        prev.map((s) => (s.id === updated.id ? updated : s)),
-      );
-
-      toastSuccess(
-        `Society "${updated.name}" is now ${updated.status.toLowerCase()}.`,
-      );
-      setSocietyToToggle(null);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        'Failed to update society status.';
-      toastError(msg);
-    } finally {
-      setIsTogglingStatus(false);
-    }
   };
 
   // Filtered Societies
@@ -271,7 +251,7 @@ Login URL: ${window.location.origin}/login`;
           <>
             <button
               type="button"
-              onClick={() => fetchSocieties(true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh societies"

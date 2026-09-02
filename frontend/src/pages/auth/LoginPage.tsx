@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Shield,
   Lock,
   Mail,
   Eye,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRole } from '../../context/RoleContext';
+import { BRAND_CONFIG } from '../../constants/branding';
 
 const REMEMBERED_EMAIL_KEY = 'iverto_remembered_email';
 
@@ -142,14 +142,18 @@ export const LoginPage: React.FC = () => {
       <div className="w-full max-w-md relative z-10 animate-fade-in-up">
         {/* Brand Header */}
         <div className="text-center mb-8 space-y-2">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#cd0447] to-[#e91e63] text-white shadow-lg shadow-pink-500/25 mb-2 hover:scale-105 transition-transform duration-200">
-            <Shield className="w-7 h-7 stroke-[2.2]" />
+          <div className="flex justify-center mb-2">
+            <img
+              src={BRAND_CONFIG.logoFull}
+              alt={BRAND_CONFIG.name}
+              className="h-14 max-w-[280px] object-contain drop-shadow-md hover:scale-105 transition-transform duration-200"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = BRAND_CONFIG.logoFullLocal;
+              }}
+            />
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900 font-sans">
-            iverto
-          </h1>
           <p className="text-sm font-medium text-gray-500 tracking-wide">
-            Gate & Community Access Management
+            {BRAND_CONFIG.tagline}
           </p>
         </div>
 

@@ -14,7 +14,6 @@ import {
   Package,
   KeyRound,
   Activity,
-  Shield,
   ShieldCheck,
   DoorOpen,
   ChevronLeft,
@@ -25,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useRole } from '../../context/RoleContext';
 import { useAuth } from '../../context/AuthContext';
+import { BRAND_CONFIG } from '../../constants/branding';
 
 export const SIDEBAR_COLLAPSED_KEY = 'iverto.sidebar.collapsed';
 
@@ -231,21 +231,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
           isCollapsed ? 'justify-center' : 'justify-between'
         }`}
       >
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#cd0447] to-[#e91e63] flex items-center justify-center text-white shadow-md shadow-[#cd0447]/20 shrink-0">
-            <Shield className="w-5 h-5" />
+        {isCollapsed ? (
+          <div className="flex items-center justify-center">
+            <img
+              src={BRAND_CONFIG.logoIcon}
+              alt={BRAND_CONFIG.name}
+              className="w-9 h-9 object-contain drop-shadow-xs transition-transform duration-200 hover:scale-105"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = BRAND_CONFIG.logoIconLocal;
+              }}
+            />
           </div>
-          {!isCollapsed && (
-            <div className="flex flex-col min-w-0">
-              <span className="font-bold text-lg tracking-tight text-gray-900 leading-none">
-                iverto
-              </span>
-              <span className="text-[10px] text-gray-400 font-semibold tracking-wider uppercase mt-1 truncate">
-                Access Platform
-              </span>
-            </div>
-          )}
-        </div>
+        ) : (
+          <div className="flex items-center gap-3 overflow-hidden">
+            <img
+              src={BRAND_CONFIG.logoFull}
+              alt={BRAND_CONFIG.name}
+              className="h-8 max-w-[170px] object-contain object-left drop-shadow-xs transition-all duration-200"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = BRAND_CONFIG.logoFullLocal;
+              }}
+            />
+          </div>
+        )}
 
         {/* Mobile close button */}
         {isMobileOpen && onMobileClose && (

@@ -80,6 +80,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(null);
     setUser(null);
     setMustChangePassword(false);
+    // Wipe any cached server data so a different user signing in on the same
+    // browser never sees the previous account's data.
+    try {
+      window.sessionStorage.removeItem('iverto_cache_v1');
+    } catch {
+      // ignore
+    }
   }, [applyAuthHeader]);
 
   const login = useCallback(

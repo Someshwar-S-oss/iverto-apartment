@@ -125,7 +125,7 @@ export const guardApi = {
    * Returns the direct streaming URL for a visitor's captured photo.
    */
   getVisitorPhotoUrl: (entryEventId: string): string => {
-    const baseUrl = import.meta.env.VITE_API_URL || '';
+    const baseUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
     return `${baseUrl}/api/v1/mobile/entry-events/${entryEventId}/photo`;
   },
 };

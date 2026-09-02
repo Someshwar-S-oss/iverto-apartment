@@ -1,8 +1,51 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import apiClient from '../api/client';
+import { useCache } from './CacheContext';
+import apiClient, { AUTH_SESSION_KEY } from '../api/client';
 import authApi from '../api/auth.api';
 import type { AppContext, User } from '../api/types';
+
+const CONTEXTS_CACHE_KEY = 'auth/my-contexts';
+
+const readStoredUser = (): User | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = window.localStorage.getItem(AUTH_SESSION_KEY);
+    return stored ? (JSON.parse(stored) as User) : null;
+  } catch {
+    return null;
+  }
+};
+
+const pickInitialContext = (
+  availableContexts: AppContext[],
+  currentUser: User | null,
+): AppContext | null => {
+  if (!availableContexts || availableContexts.length === 0) {
+    if (currentUser?.isSuperadmin) return GLOBAL_SUPERADMIN_CONTEXT;
+    return null;
+  }
+  const savedContextId =
+    typeof window !== 'undefined' ? window.localStorage.getItem(ACTIVE_CONTEXT_KEY) : null;
+  if (savedContextId) {
+    const matching = availableContexts.find((c) => c.id === savedContextId);
+    if (matching) return matching;
+  }
+  if (currentUser?.isSuperadmin) {
+    const globalCtx = availableContexts.find((c) => c.type === 'GLOBAL');
+    if (globalCtx) return globalCtx;
+    return GLOBAL_SUPERADMIN_CONTEXT;
+  }
+  const primaryUnit = availableContexts.find((c) => c.type === 'UNIT' && c.isPrimary);
+  if (primaryUnit) return primaryUnit;
+  const firstUnit = availableContexts.find((c) => c.type === 'UNIT');
+  if (firstUnit) return firstUnit;
+  const firstSociety = availableContexts.find((c) => c.type === 'SOCIETY');
+  if (firstSociety) return firstSociety;
+  const firstGate = availableContexts.find((c) => c.type === 'GATE');
+  if (firstGate) return firstGate;
+  return availableContexts[0] || null;
+};
 
 export const ACTIVE_CONTEXT_KEY = 'iverto_active_context_id';
 
@@ -59,8 +102,16 @@ export const calculateRedirectPath = (
 
 export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
-  const [contexts, setContexts] = useState<AppContext[]>([]);
-  const [activeContext, setActiveContext] = useState<AppContext | null>(null);
+  const cache = useCache();
+  const cachedContexts = cache.get<AppContext[]>(CONTEXTS_CACHE_KEY);
+  const initialUser = user ?? readStoredUser();
+  const [contexts, setContexts] = useState<AppContext[]>(cachedContexts?.data ?? []);
+  const [activeContext, setActiveContext] = useState<AppContext | null>(() => {
+    if (cachedContexts?.data && cachedContexts.data.length > 0) {
+      return pickInitialContext(cachedContexts.data, initialUser);
+    }
+    return null;
+  });
   const [isLoadingContexts, setIsLoadingContexts] = useState<boolean>(false);
 
   const getPrimaryRedirectPath = useCallback(
@@ -70,50 +121,6 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return calculateRedirectPath(target, targetUser);
     },
     [activeContext, user],
-  );
-
-  const selectInitialContext = useCallback(
-    (availableContexts: AppContext[], currentUser: User | null): AppContext | null => {
-      if (!availableContexts || availableContexts.length === 0) {
-        if (currentUser?.isSuperadmin) {
-          return GLOBAL_SUPERADMIN_CONTEXT;
-        }
-        return null;
-      }
-
-      const savedContextId = typeof window !== 'undefined' ? localStorage.getItem(ACTIVE_CONTEXT_KEY) : null;
-      if (savedContextId) {
-        const matching = availableContexts.find((c) => c.id === savedContextId);
-        if (matching) return matching;
-      }
-
-      // Priority 1: Superadmin default
-      if (currentUser?.isSuperadmin) {
-        const globalCtx = availableContexts.find((c) => c.type === 'GLOBAL');
-        if (globalCtx) return globalCtx;
-        return GLOBAL_SUPERADMIN_CONTEXT;
-      }
-
-      // Priority 2: Primary Unit Context
-      const primaryUnit = availableContexts.find((c) => c.type === 'UNIT' && c.isPrimary);
-      if (primaryUnit) return primaryUnit;
-
-      // Priority 3: First Unit Context
-      const firstUnit = availableContexts.find((c) => c.type === 'UNIT');
-      if (firstUnit) return firstUnit;
-
-      // Priority 4: First Society Admin Context
-      const firstSociety = availableContexts.find((c) => c.type === 'SOCIETY');
-      if (firstSociety) return firstSociety;
-
-      // Priority 5: First Guard Context
-      const firstGate = availableContexts.find((c) => c.type === 'GATE');
-      if (firstGate) return firstGate;
-
-      // Default fallback: first context
-      return availableContexts[0] || null;
-    },
-    [],
   );
 
   const fetchContexts = useCallback(
@@ -130,6 +137,7 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!activeToken) {
         setContexts([]);
         setActiveContext(null);
+        cache.set<AppContext[]>(CONTEXTS_CACHE_KEY, [], null);
         return [];
       }
 
@@ -150,8 +158,9 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         setContexts(fetched);
+        cache.set<AppContext[]>(CONTEXTS_CACHE_KEY, fetched, null);
 
-        const chosen = selectInitialContext(fetched, activeUser);
+        const chosen = pickInitialContext(fetched, activeUser);
         setActiveContext(chosen);
 
         if (chosen && typeof window !== 'undefined') {
@@ -165,6 +174,7 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const fallback = [GLOBAL_SUPERADMIN_CONTEXT];
           setContexts(fallback);
           setActiveContext(GLOBAL_SUPERADMIN_CONTEXT);
+          cache.set<AppContext[]>(CONTEXTS_CACHE_KEY, fallback, null);
           return fallback;
         }
         return [];
@@ -172,7 +182,7 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoadingContexts(false);
       }
     },
-    [user, selectInitialContext],
+    [user, cache],
   );
 
   const switchContext = useCallback(
@@ -197,15 +207,19 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Synchronize when auth state or user changes
   useEffect(() => {
     if (isAuthenticated) {
+      // Only show the loading state when there is no cached context to fall back on.
+      const hasCached = (cache.get<AppContext[]>(CONTEXTS_CACHE_KEY)?.data?.length ?? 0) > 0;
+      setIsLoadingContexts(!hasCached);
       fetchContexts();
     } else {
       setContexts([]);
       setActiveContext(null);
+      cache.remove(CONTEXTS_CACHE_KEY);
       if (typeof window !== 'undefined') {
         localStorage.removeItem(ACTIVE_CONTEXT_KEY);
       }
     }
-  }, [isAuthenticated, user?.id, user?.isSuperadmin, fetchContexts]);
+  }, [isAuthenticated, user?.id, user?.isSuperadmin, fetchContexts, cache]);
 
   const value = useMemo(
     () => ({

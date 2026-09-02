@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   UserPlus,
   Package,
@@ -20,6 +20,8 @@ import { guardApi } from '../../api/guard.api';
 import type { Approval, UnitDirectoryItem } from '../../api/types';
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
+import { useCache } from '../../context/CacheContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { VisitorEntryModal } from './VisitorEntryModal';
 import { DeliveryModal } from './DeliveryModal';
 import { PasscodeModal } from './PasscodeModal';
@@ -27,10 +29,12 @@ import { ExitModal } from './ExitModal';
 import { DecisionOverlay, DecisionData } from './DecisionOverlay';
 
 const TOTAL_COUNTDOWN_SECONDS = 90;
+const PENDING_KEY = (gateId: string) => `guard/kiosk/pending|gate:${gateId}`;
 
 export const KioskPage: React.FC = () => {
   const { activeContext } = useRole();
   const { lastEvent } = useRealtime();
+  const cache = useCache();
 
   const gateId =
     activeContext?.gateId ||
@@ -62,58 +66,49 @@ export const KioskPage: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Pending Approvals State (Real-time & 5s Polling)
-  const [pendingApprovals, setPendingApprovals] = useState<Approval[]>([]);
-  const [isLoadingPending, setIsLoadingPending] = useState<boolean>(true);
-  const [isRefreshingPending, setIsRefreshingPending] = useState<boolean>(false);
-
-  // Ticking countdown clock for each pending item (remaining seconds keyed by approvalId)
   const [countdownTimers, setCountdownTimers] = useState<Record<string, number>>({});
 
-  // 1. Fetch Pending Approvals
-  const fetchPendingApprovals = useCallback(
-    async (showIndicator = false) => {
-      if (!gateId) return;
+  const pendingKey = useMemo(() => PENDING_KEY(gateId || 'none'), [gateId]);
 
-      if (showIndicator) {
-        setIsRefreshingPending(true);
-      }
-
-      try {
-        const approvals = await guardApi.getPendingApprovals(gateId);
-        setPendingApprovals(approvals || []);
-
-        // Initialize countdown timers based on creation time or validUntil
-        setCountdownTimers((prev) => {
-          const next: Record<string, number> = { ...prev };
-          (approvals || []).forEach((a) => {
-            if (next[a.id] === undefined) {
-              const elapsedSeconds = Math.floor(
-                (Date.now() - new Date(a.createdAt).getTime()) / 1000,
-              );
-              const remaining = Math.max(0, TOTAL_COUNTDOWN_SECONDS - elapsedSeconds);
-              next[a.id] = remaining;
-            }
-          });
-          return next;
-        });
-      } catch (err) {
-        console.error('Failed to fetch pending approvals for gate:', err);
-      } finally {
-        setIsLoadingPending(false);
-        setIsRefreshingPending(false);
-      }
-    },
-    [gateId],
+  const {
+    data: pendingData,
+    isLoading: isLoadingPending,
+    isRefreshing: isRefreshingPending,
+    refetch: refetchPending,
+  } = useCachedFetch<Approval[]>(
+    pendingKey,
+    () => guardApi.getPendingApprovals(gateId).then((approvals) => approvals || []),
+    { deps: [gateId], skipInitialFetch: !gateId },
   );
 
-  // Initial load & 5s safety polling
+  const pendingApprovals: Approval[] = useMemo(() => pendingData ?? [], [pendingData]);
+
+  // Initialise countdown timers from approvals as they arrive.
   useEffect(() => {
-    fetchPendingApprovals();
+    if (!pendingApprovals.length) return;
+    setCountdownTimers((prev) => {
+      const next: Record<string, number> = { ...prev };
+      pendingApprovals.forEach((a) => {
+        if (next[a.id] === undefined) {
+          const elapsedSeconds = Math.floor(
+            (Date.now() - new Date(a.createdAt).getTime()) / 1000,
+          );
+          const remaining = Math.max(0, TOTAL_COUNTDOWN_SECONDS - elapsedSeconds);
+          next[a.id] = remaining;
+        }
+      });
+      return next;
+    });
+  }, [pendingApprovals]);
+
+  // 5s safety polling reuses the cached fetcher.
+  useEffect(() => {
+    if (!gateId) return;
     const interval = setInterval(() => {
-      fetchPendingApprovals();
+      void refetchPending(true);
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchPendingApprovals]);
+  }, [gateId, refetchPending]);
 
   // 2. Countdown Timer tick every second
   useEffect(() => {
@@ -135,9 +130,8 @@ export const KioskPage: React.FC = () => {
 
     if (lastEvent.name === 'approval.requested') {
       const data = lastEvent.data;
-      // Add or refresh pending list
-      setPendingApprovals((prev) => {
-        if (prev.some((a) => a.id === data.approvalId)) return prev;
+      const current = cache.get<Approval[]>(pendingKey)?.data ?? [];
+      if (!current.some((a) => a.id === data.approvalId)) {
         const newApproval: Approval = {
           id: data.approvalId,
           entryEventId: data.entryEventId,
@@ -151,8 +145,8 @@ export const KioskPage: React.FC = () => {
           platform: data.platform,
           unitNumber: data.unitNumber,
         };
-        return [newApproval, ...prev];
-      });
+        cache.set<Approval[]>(pendingKey, [newApproval, ...current], null);
+      }
 
       setCountdownTimers((prev) => ({
         ...prev,
@@ -161,9 +155,12 @@ export const KioskPage: React.FC = () => {
     } else if (lastEvent.name === 'approval.decided') {
       const data = lastEvent.data;
 
-      // Remove from pending approvals list
-      setPendingApprovals((prev) =>
-        prev.filter((a) => a.id !== data.approvalId && a.entryEventId !== data.entryEventId),
+      // Remove from pending approvals list (write to cache).
+      const current = cache.get<Approval[]>(pendingKey)?.data ?? [];
+      cache.set<Approval[]>(
+        pendingKey,
+        current.filter((a) => a.id !== data.approvalId && a.entryEventId !== data.entryEventId),
+        null,
       );
 
       // Trigger Fullscreen / Prominent Decision Overlay
@@ -183,9 +180,9 @@ export const KioskPage: React.FC = () => {
       });
     } else if (lastEvent.name === 'gate.event') {
       // Refresh pending approvals when gate events occur
-      fetchPendingApprovals();
+      void refetchPending(true);
     }
-  }, [lastEvent, fetchPendingApprovals]);
+  }, [lastEvent, refetchPending, pendingKey, cache]);
 
   // 4. Directory Search Query Handling (with 200ms debounce)
   useEffect(() => {
@@ -559,7 +556,7 @@ export const KioskPage: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => fetchPendingApprovals(true)}
+            onClick={() => void refetchPending(true)}
             disabled={isRefreshingPending}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 text-xs font-bold transition-colors cursor-pointer"
           >
@@ -754,7 +751,7 @@ export const KioskPage: React.FC = () => {
         gateId={gateId}
         initialUnitId={preSelectedUnit?.unitId}
         initialUnitNumber={preSelectedUnit?.unitNumber}
-        onSuccess={() => fetchPendingApprovals()}
+        onSuccess={() => void refetchPending(true)}
       />
 
       <DeliveryModal
@@ -763,21 +760,21 @@ export const KioskPage: React.FC = () => {
         gateId={gateId}
         initialUnitId={preSelectedUnit?.unitId}
         initialUnitNumber={preSelectedUnit?.unitNumber}
-        onSuccess={() => fetchPendingApprovals()}
+        onSuccess={() => void refetchPending(true)}
       />
 
       <PasscodeModal
         isOpen={isPasscodeModalOpen}
         onClose={() => setIsPasscodeModalOpen(false)}
         gateId={gateId}
-        onSuccess={() => fetchPendingApprovals()}
+        onSuccess={() => void refetchPending(true)}
       />
 
       <ExitModal
         isOpen={isExitModalOpen}
         onClose={() => setIsExitModalOpen(false)}
         gateId={gateId}
-        onSuccess={() => fetchPendingApprovals()}
+        onSuccess={() => void refetchPending(true)}
       />
     </div>
   );

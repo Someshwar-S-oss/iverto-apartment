@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import {
-  Shield,
   Clock,
   LogOut,
   Building,
@@ -12,6 +11,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
+import { BRAND_CONFIG } from '../../constants/branding';
 
 export interface GuardKioskLayoutProps {
   children?: React.ReactNode;
@@ -57,8 +57,15 @@ export const GuardKioskLayout: React.FC<GuardKioskLayoutProps> = ({ children }) 
       <header className="bg-gray-900 border-b border-gray-800 px-4 sm:px-6 py-3 shrink-0 flex items-center justify-between gap-4">
         {/* Left: Gate & Society Name */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-[#cd0447] text-white flex items-center justify-center font-bold shadow-md shadow-[#cd0447]/30 shrink-0">
-            <Shield className="w-6 h-6" />
+          <div className="w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center p-1 shadow-md shadow-pink-900/20 shrink-0">
+            <img
+              src={BRAND_CONFIG.logoIcon}
+              alt={BRAND_CONFIG.name}
+              className="w-8 h-8 object-contain"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = BRAND_CONFIG.logoIconLocal;
+              }}
+            />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Package,
   Truck,
@@ -12,12 +12,15 @@ import {
   Save,
 } from 'lucide-react';
 import { residentApi } from '../../api/resident.api';
-import type { DeliveryPlatform, DeliveryMode } from '../../api/types';
+import type { DeliveryPlatform, DeliveryMode, DeliveryPermission } from '../../api/types';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Badge } from '../../components/ui/Badge';
 import { TableSkeleton } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const DELIVERIES_KEY = (unitId: string) => `resident/deliveries/permissions|unit:${unitId}`;
 
 interface PlatformConfig {
   key: DeliveryPlatform;
@@ -131,53 +134,40 @@ export const DeliveriesPage: React.FC = () => {
     OTHER: { mode: 'ASK_ME', windowStart: '09:00', windowEnd: '20:00', silent: false },
   });
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [savingPlatform, setSavingPlatform] = useState<DeliveryPlatform | null>(null);
 
-  // Load existing permissions
-  const fetchPermissions = useCallback(
-    async (showRefreshing = false) => {
-      if (!unitId) return;
+  const deliveriesKey = useMemo(() => DELIVERIES_KEY(unitId || 'none'), [unitId]);
 
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const data = await residentApi.getDeliveryPermissions(unitId);
-        if (data && Array.isArray(data)) {
-          setRules((prev) => {
-            const next = { ...prev };
-            data.forEach((p) => {
-              if (p.platform && next[p.platform]) {
-                next[p.platform] = {
-                  mode: p.mode || 'ASK_ME',
-                  windowStart: p.windowStart || '08:00',
-                  windowEnd: p.windowEnd || '22:00',
-                  silent: Boolean(p.silent),
-                };
-              }
-            });
-            return next;
-          });
-        }
-      } catch (err: any) {
-        console.error('Failed to load delivery permissions:', err);
-        toastError('Failed to fetch delivery settings.');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [unitId, toastError],
+  const {
+    data: permissionsData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<DeliveryPermission[]>(
+    deliveriesKey,
+    () => residentApi.getDeliveryPermissions(unitId).then((data) => data || []),
+    { deps: [unitId], skipInitialFetch: !unitId },
   );
 
+  // Sync loaded permissions into rules state
   useEffect(() => {
-    fetchPermissions();
-  }, [fetchPermissions]);
+    if (permissionsData && Array.isArray(permissionsData)) {
+      setRules((prev) => {
+        const next = { ...prev };
+        permissionsData.forEach((p) => {
+          if (p.platform && next[p.platform]) {
+            next[p.platform] = {
+              mode: p.mode || 'ASK_ME',
+              windowStart: p.windowStart || '08:00',
+              windowEnd: p.windowEnd || '22:00',
+              silent: Boolean(p.silent),
+            };
+          }
+        });
+        return next;
+      });
+    }
+  }, [permissionsData]);
 
   // Save changes for a platform rule
   const handleSaveRule = async (platform: DeliveryPlatform) => {
@@ -194,6 +184,7 @@ export const DeliveriesPage: React.FC = () => {
       });
 
       toastSuccess(`Delivery settings saved for ${platform}.`);
+      void refetch(true);
     } catch (err: any) {
       console.error('Failed to save delivery permission:', err);
       toastError(err.response?.data?.message || `Failed to update ${platform} rule.`);
@@ -223,6 +214,7 @@ export const DeliveriesPage: React.FC = () => {
         ),
       );
       toastSuccess(`All delivery platforms set to ${mode.replace(/_/g, ' ')}.`);
+      void refetch(true);
     } catch (err) {
       console.error('Failed bulk update:', err);
       toastError('Failed to apply bulk settings.');
@@ -253,7 +245,7 @@ export const DeliveriesPage: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => fetchPermissions(true)}
+              onClick={() => void refetch(true)}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh permissions"

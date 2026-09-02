@@ -21,6 +21,10 @@ import { Modal } from '../../components/ui/Modal';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useToast } from '../../context/ToastContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const DEVICES_KEY = 'superadmin/devices';
+const SOCIETIES_KEY = 'superadmin/societies';
 
 type DeviceStatusFilter = 'ALL' | 'ONLINE' | 'OFFLINE' | 'DEGRADED';
 
@@ -63,11 +67,7 @@ export const DevicesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { success: toastSuccess, error: toastError } = useToast();
 
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [societies, setSocieties] = useState<Society[]>([]);
   const [societyGates, setSocietyGates] = useState<Gate[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<DeviceStatusFilter>('ALL');
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('ALL');
@@ -97,45 +97,46 @@ export const DevicesPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Load Devices & Societies
-  const loadData = useCallback(async (showRefreshing = false) => {
-    if (showRefreshing) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
+  const {
+    data: devicesData,
+    isLoading: isLoadingDevices,
+    isRefreshing: isRefreshingDevices,
+    refetch: refetchDevices,
+  } = useCachedFetch<Device[]>(
+    DEVICES_KEY,
+    () => superadminApi.getDevices().then((data) => data || []),
+  );
 
-    try {
-      const [devicesData, societiesData] = await Promise.all([
-        superadminApi.getDevices(),
-        superadminApi.getSocieties(),
-      ]);
+  const {
+    data: societiesData,
+    isLoading: isLoadingSocieties,
+    isRefreshing: isRefreshingSocieties,
+    refetch: refetchSocieties,
+  } = useCachedFetch<Society[]>(
+    SOCIETIES_KEY,
+    () => superadminApi.getSocieties().then((data) => data || []),
+  );
 
-      setDevices(devicesData);
-      setSocieties(societiesData);
+  const devices = useMemo(() => devicesData ?? [], [devicesData]);
+  const societies = useMemo(() => societiesData ?? [], [societiesData]);
 
-      // Default first society in form if not selected
-      if (societiesData.length > 0 && !formData.societyId) {
-        setFormData((prev) => ({
-          ...prev,
-          societyId: prev.societyId || societiesData[0].id,
-        }));
-      }
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        'Failed to fetch devices and societies.';
-      toastError(msg);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [formData.societyId, toastError]);
+  const isLoading = isLoadingDevices || isLoadingSocieties;
+  const isRefreshing = isRefreshingDevices || isRefreshingSocieties;
 
+  const refresh = useCallback(
+    () => Promise.all([refetchDevices(true), refetchSocieties(true)]),
+    [refetchDevices, refetchSocieties],
+  );
+
+  // Default first society in form if not selected
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (societies.length > 0 && !formData.societyId) {
+      setFormData((prev) => ({
+        ...prev,
+        societyId: prev.societyId || societies[0].id,
+      }));
+    }
+  }, [societies, formData.societyId]);
 
   // Refresh the gate picker whenever the target society changes
   useEffect(() => {
@@ -183,18 +184,18 @@ export const DevicesPage: React.FC = () => {
     setFormData((prev) => ({ ...prev, authToken: `sec_${secret}` }));
   };
 
-  // Validation
+  // Form Validation
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
 
     if (!formData.serialNo.trim()) {
-      errors.serialNo = 'Serial Number is required';
+      errors.serialNo = 'Serial number / MAC address is required';
     }
     if (!formData.societyId) {
-      errors.societyId = 'Please select a tenant society';
+      errors.societyId = 'Target society must be selected';
     }
-    if (!formData.vendor) {
-      errors.vendor = 'Please select a hardware vendor';
+    if (!formData.name?.trim()) {
+      errors.name = 'Terminal display label is required';
     }
 
     setFormErrors(errors);
@@ -209,10 +210,10 @@ export const DevicesPage: React.FC = () => {
     setIsSubmitting(true);
     try {
       const provisioned = await superadminApi.provisionDevice({
-        serialNo: formData.serialNo.trim().toUpperCase(),
+        serialNo: formData.serialNo.trim(),
         vendor: formData.vendor,
         societyId: formData.societyId,
-        gateId: formData.gateId?.trim() || undefined,
+        gateId: formData.gateId || undefined,
         name: formData.name?.trim() || undefined,
         authToken: formData.authToken?.trim() || undefined,
       });
@@ -232,7 +233,7 @@ export const DevicesPage: React.FC = () => {
       setIsProvisionOpen(false);
 
       // Refresh list
-      loadData();
+      await refresh();
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -304,7 +305,7 @@ export const DevicesPage: React.FC = () => {
           <>
             <button
               type="button"
-              onClick={() => loadData(true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh hardware status"

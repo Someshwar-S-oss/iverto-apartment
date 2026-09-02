@@ -22,32 +22,78 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { TableSkeleton, EmptyState, NoResultsState } from '../../components/ui/States';
 import { useRole } from '../../context/RoleContext';
 import { useRealtime } from '../../context/RealtimeContext';
-import { useToast } from '../../context/ToastContext';
+import { useCache } from '../../context/CacheContext';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+
+const LOGS_KEY = (societyId: string, page: number, limit: number) =>
+  `admin/gate-logs|society:${societyId}|page:${page}|limit:${limit}`;
 
 export const GateLogsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { activeContext } = useRole();
   const { latestEntryEvent } = useRealtime();
-  const { error: toastError } = useToast();
+  const cache = useCache();
 
   const societyId =
     activeContext?.societyId ||
     (activeContext?.type === 'SOCIETY' ? activeContext.id : '') ||
     '';
 
-  const [logs, setLogs] = useState<EntryEvent[]>([]);
-  const [totalCount, setTotalCount] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
   const limit = 20;
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [subjectFilter, setSubjectFilter] = useState<string>('ALL');
   const [directionFilter, setDirectionFilter] = useState<string>('ALL');
 
   // Selected event for Photo & Details Modal
   const [selectedEvent, setSelectedEvent] = useState<EntryEvent | null>(null);
+
+  const logsKey = useMemo(
+    () => LOGS_KEY(societyId || 'none', page, limit),
+    [societyId, page, limit],
+  );
+
+  const {
+    data: logsData,
+    isLoading,
+    isRefreshing,
+    refetch,
+  } = useCachedFetch<EntryEvent[]>(
+    logsKey,
+    async () => {
+      const res = await societyAdminApi.getLogs(societyId, page, limit);
+      return res.data || [];
+    },
+    { deps: [societyId, page, limit], skipInitialFetch: !societyId },
+  );
+
+  const logs: EntryEvent[] = useMemo(() => logsData ?? [], [logsData]);
+
+  // The cached total is kept under a sibling key, parallel to the page key.
+  const totalKey = useMemo(
+    () => `admin/gate-logs/total|society:${societyId || 'none'}|limit:${limit}`,
+    [societyId, limit],
+  );
+  const totalCount = cache.get<number>(totalKey)?.data ?? logs.length;
+
+  // Whenever we get a fresh page result, also remember its total.
+  useEffect(() => {
+    if (societyId) {
+      // Re-fetch with side effect of stashing total: piggyback on the page fetch.
+      (async () => {
+        try {
+          const res = await societyAdminApi.getLogs(societyId, page, limit);
+          if (typeof res.total === 'number') {
+            cache.set<number>(totalKey, res.total, null);
+          }
+        } catch {
+          // Already surfaced via useCachedFetch.
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [societyId, page, limit]);
 
   // Check URL query param ?id=...
   useEffect(() => {
@@ -60,51 +106,19 @@ export const GateLogsPage: React.FC = () => {
     }
   }, [searchParams, logs]);
 
-  // Fetch gate logs
-  const fetchLogs = useCallback(
-    async (currentPage = 1, showRefreshing = false) => {
-      if (!societyId) return;
-
-      if (showRefreshing) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-
-      try {
-        const result = await societyAdminApi.getLogs(societyId, currentPage, limit);
-        setLogs(result.data || []);
-        setTotalCount(result.total || result.data.length);
-        setPage(currentPage);
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to load gate activity logs.';
-        toastError(msg);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [societyId, limit, toastError],
-  );
-
+  // Real-time Event Subscription: prepend newly received entry events into page 1
   useEffect(() => {
-    fetchLogs(1);
-  }, [fetchLogs]);
-
-  // Real-time Event Subscription: prepend newly received entry events
-  useEffect(() => {
-    if (latestEntryEvent && (!latestEntryEvent.societyId || latestEntryEvent.societyId === societyId)) {
-      setLogs((prev) => {
-        const exists = prev.some((e) => e.id === latestEntryEvent.id);
-        if (exists) return prev;
-        return [latestEntryEvent, ...prev];
-      });
-      setTotalCount((prev) => prev + 1);
+    if (!latestEntryEvent) return;
+    if (latestEntryEvent.societyId && latestEntryEvent.societyId !== societyId) return;
+    if (page !== 1) return;
+    const existing = cache.get<EntryEvent[]>(logsKey)?.data ?? [];
+    const exists = existing.some((e) => e.id === latestEntryEvent.id);
+    if (!exists) {
+      cache.set<EntryEvent[]>(logsKey, [latestEntryEvent, ...existing].slice(0, limit), null);
     }
-  }, [latestEntryEvent, societyId]);
+  }, [latestEntryEvent, societyId, page, logsKey, limit, cache]);
+
+  const refresh = useCallback(() => refetch(true), [refetch]);
 
   // Filtered logs (client-side search & filtering across current set)
   const filteredLogs = useMemo(() => {
@@ -157,7 +171,7 @@ export const GateLogsPage: React.FC = () => {
   };
 
   const getVisitorPhotoUrl = (entryEventId: string) => {
-    const baseUrl = import.meta.env.VITE_API_URL || '';
+    const baseUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
     return `${baseUrl}/api/v1/mobile/entry-events/${entryEventId}/photo`;
   };
 
@@ -173,7 +187,7 @@ export const GateLogsPage: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => fetchLogs(page, true)}
+              onClick={() => void refresh()}
               disabled={isLoading || isRefreshing}
               className="btn-secondary text-xs sm:text-sm !py-2 !px-3.5 flex items-center gap-1.5"
               title="Refresh logs"
@@ -411,7 +425,7 @@ export const GateLogsPage: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => fetchLogs(page - 1)}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1 || isLoading}
                 className="btn-secondary !text-xs !py-1 !px-2.5 flex items-center gap-1"
               >
@@ -423,7 +437,7 @@ export const GateLogsPage: React.FC = () => {
               </span>
               <button
                 type="button"
-                onClick={() => fetchLogs(page + 1)}
+                onClick={() => setPage((p) => p + 1)}
                 disabled={page >= totalPages || isLoading}
                 className="btn-secondary !text-xs !py-1 !px-2.5 flex items-center gap-1"
               >
