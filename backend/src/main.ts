@@ -3,6 +3,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { SharedHttpIoAdapter } from './common/adapters/shared-http-io.adapter';
 
@@ -10,6 +11,14 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+
+  // Nest's default Express body parser caps requests at 100kb, which is far too small
+  // for the base64-encoded visitor/staff/delivery photos the mobile guard app uploads
+  // (JSON payload with photoBase64) — that produced "request entity too large" (413)
+  // errors on visitor registration. Raise the limit to comfortably fit a compressed
+  // camera capture encoded as base64 (~33% larger than the raw image).
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   // Baseline security headers (HSTS, X-Content-Type-Options, disabled X-Powered-By, etc).
   // CSP is disabled because it would otherwise block Swagger UI's inline bootstrap
