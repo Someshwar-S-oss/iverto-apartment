@@ -453,14 +453,26 @@ export const StaffPage: React.FC = () => {
                       </Badge>
                     </td>
                     <td className="text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(staff)}
-                        className="btn-secondary !text-xs !py-1 !px-2.5 flex items-center gap-1.5 ml-auto"
-                      >
-                        <Edit2 className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{staff.facePersonRef ? 'Edit' : 'Pair M50'}</span>
-                      </button>
+                      <div className="flex items-center gap-1.5 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(staff)}
+                          className="btn-secondary !text-xs !py-1 !px-2.5 flex items-center gap-1.5"
+                          title="Edit profile / pair M50 face ID"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-gray-500" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(staff)}
+                          className="btn-secondary !text-xs !py-1 !px-2.5 flex items-center gap-1.5 !text-[#cd0447] !border-pink-200"
+                          title="Assign or unassign this helper to a flat"
+                        >
+                          <Home className="w-3.5 h-3.5" />
+                          <span>Assign Flat</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

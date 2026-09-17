@@ -666,14 +666,14 @@ export const DashboardPage: React.FC = () => {
                 <Users className="w-8 h-8 mx-auto text-gray-300 mb-1.5 stroke-[1.5]" />
                 <p className="text-xs font-semibold text-gray-700">No staff assigned</p>
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  Assign maids, cooks or drivers to your flat.
+                  Contact your society's site admin to assign a maid, cook or driver to your flat.
                 </p>
                 <button
                   type="button"
-                  onClick={() => navigate('/resident/staff?action=assign')}
+                  onClick={() => navigate('/resident/staff')}
                   className="btn-secondary !text-xs !py-1 !px-2.5 mt-3"
                 >
-                  Assign Staff
+                  View Staff
                 </button>
               </div>
             ) : (

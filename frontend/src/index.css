@@ -581,7 +581,11 @@ select.input-base {
   appearance: none;
 }
 
-.field-label {
+/* `.form-label` is an alias of `.field-label` — modal forms across
+   admin/resident pages were built against this name. Keeping both
+   selectors on one rule set avoids a second, undefined label style. */
+.field-label,
+.form-label {
   display: block;
   font-size: 0.75rem;
   font-weight: 600;
@@ -616,6 +620,18 @@ select.input-base {
 
 .field-invalid:focus {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
+}
+
+/* Cancel/submit row for forms embedded directly in a modal's scrollable
+   body (as opposed to Modal's own sticky `footer` prop slot). Mirrors that
+   slot's alignment/spacing so both footer styles read as one system. */
+.modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  border-top: 1px solid var(--line);
 }
 
 /* ============================================================
