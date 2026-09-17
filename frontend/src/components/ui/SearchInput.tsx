@@ -27,7 +27,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
 
   return (
     <div className={`relative flex items-center min-w-[200px] ${className}`}>
-      <Search className="absolute left-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
+      <Search className="absolute left-3.5 w-4 h-4 text-[var(--ink-400)] pointer-events-none" />
       <input
         type="text"
         value={value}
@@ -35,13 +35,13 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         placeholder={placeholder}
         disabled={disabled}
         autoFocus={autoFocus}
-        className="field !pl-10 !pr-9 text-sm"
+        className="field field-icon-l field-icon-r text-sm"
       />
       {value && !disabled && (
         <button
           type="button"
           onClick={handleClear}
-          className="absolute right-2.5 p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+          className="absolute right-2.5 p-1 rounded-full text-[var(--ink-400)] hover:text-[var(--ink-700)] hover:bg-[var(--ink-100)] transition-colors cursor-pointer"
           aria-label="Clear search query"
         >
           <X className="w-3.5 h-3.5" />

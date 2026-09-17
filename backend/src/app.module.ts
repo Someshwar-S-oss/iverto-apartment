@@ -17,6 +17,7 @@ import { EntryEventsModule } from './modules/entry-events/entry-events.module';
 import { M50Module } from './modules/m50/m50.module';
 import { CommunityModule } from './modules/community/community.module';
 import { GatesModule } from './modules/gates/gates.module';
+import { HealthController } from './controllers/health.controller';
 import { SuperadminController } from './controllers/web/superadmin.controller';
 import { SocietyAdminController } from './controllers/web/society-admin.controller';
 import { MobileAuthController } from './controllers/mobile/mobile-auth.controller';
@@ -53,6 +54,7 @@ import {
     IdempotencyModule,
   ],
   controllers: [
+    HealthController,
     SuperadminController,
     SocietyAdminController,
     MobileAuthController,

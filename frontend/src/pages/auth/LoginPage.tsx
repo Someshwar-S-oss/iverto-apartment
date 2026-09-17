@@ -8,13 +8,37 @@ import {
   AlertCircle,
   Loader2,
   ArrowRight,
-  Sparkles,
+  ShieldCheck,
+  BellRing,
+  KeyRound,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRole } from '../../context/RoleContext';
 import { BRAND_CONFIG } from '../../constants/branding';
+import AuthCanvas from '../../components/layout/AuthCanvas';
 
 const REMEMBERED_EMAIL_KEY = 'iverto_remembered_email';
+
+/** What the platform actually does, stated plainly on the brand canvas. */
+const CAPABILITIES = [
+  {
+    icon: ShieldCheck,
+    title: 'Verified at the gate',
+    body: 'Guard kiosk and M50 face terminals check every visitor, delivery and helper before the gate opens.',
+  },
+  {
+    icon: BellRing,
+    title: 'Residents decide in real time',
+    body: 'Arrivals ring straight through to the unit with a photo and a one-tap approve or deny.',
+  },
+  {
+    icon: KeyRound,
+    title: 'Passcodes, deliveries, staff',
+    body: 'Time-boxed guest codes, tracked handovers and a daily roster for domestic staff.',
+  },
+];
+
+const ASSURANCES = ['Role-scoped access', 'Audit-logged entries', 'Encrypted in transit'];
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -26,6 +50,7 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [isCapsLockOn, setIsCapsLockOn] = useState(false);
 
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -119,195 +144,327 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  const trackCapsLock = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (typeof e.getModifierState === 'function') {
+      setIsCapsLockOn(e.getModifierState('CapsLock'));
+    }
+  };
+
   return (
-    <div className="login-bg min-h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-[#cd0447]/10 selection:text-[#cd0447]">
-      {/* Background Decorative Grid */}
-      <div className="login-grid" aria-hidden="true" />
+    <div className="min-h-screen w-full bg-white lg:grid lg:grid-cols-2 xl:grid-cols-[1.08fr_1fr]">
+      {/* ==========================================================
+          LEFT — brand canvas. Structural grid field, ambient brand
+          light and a slow scan sweep, framed by corner brackets.
+          ========================================================== */}
+      <section
+        className="relative hidden lg:flex flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--canvas)] p-12 xl:p-16"
+        style={{
+          ['--field-size' as string]: '40px',
+          ['--field-line' as string]: 'rgba(20, 22, 26, 0.075)',
+        }}
+      >
+        <AuthCanvas variant="grid" fade="center" scan />
 
-      {/* Background Decorative Glowing Orbs */}
-      <div
-        className="login-orb w-80 h-80 sm:w-96 sm:h-96 -top-20 -left-20 bg-pink-500/25"
-        aria-hidden="true"
-      />
-      <div
-        className="login-orb w-80 h-80 sm:w-96 sm:h-96 -bottom-20 -right-20 bg-rose-400/20"
-        aria-hidden="true"
-      />
-      <div
-        className="login-orb w-64 h-64 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-amber-200/20"
-        aria-hidden="true"
-      />
+        {/* Corner frame — sits between the panel edge and the content column */}
+        <div className="pointer-events-none absolute inset-8 z-[1] xl:inset-10" aria-hidden="true">
+          <span className="absolute left-0 top-0 h-9 w-9 border-l border-t border-[var(--brand)]/30" />
+          <span className="absolute right-0 top-0 h-9 w-9 border-r border-t border-[var(--brand)]/30" />
+          <span className="absolute bottom-0 left-0 h-9 w-9 border-b border-l border-[var(--brand)]/30" />
+          <span className="absolute bottom-0 right-0 h-9 w-9 border-b border-r border-[var(--brand)]/30" />
+        </div>
 
-      {/* Main Container */}
-      <div className="w-full max-w-md relative z-10 animate-fade-in-up">
-        {/* Brand Header */}
-        <div className="text-center mb-8 space-y-2">
-          <div className="flex justify-center mb-2">
+        <div className="relative z-10 flex h-full flex-col justify-between">
+          {/* Wordmark */}
+          <div>
             <img
               src={BRAND_CONFIG.logoFull}
               alt={BRAND_CONFIG.name}
-              className="h-14 max-w-[280px] object-contain drop-shadow-md hover:scale-105 transition-transform duration-200"
+              className="h-9 max-w-[210px] object-contain object-left"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = BRAND_CONFIG.logoFullLocal;
               }}
             />
           </div>
-          <p className="text-sm font-medium text-gray-500 tracking-wide">
-            {BRAND_CONFIG.tagline}
-          </p>
-        </div>
 
-        {/* Login Card */}
-        <div className="glass rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/80">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-gray-900">Welcome back</h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Sign in with your registered account credentials to continue
-            </p>
-          </div>
+          {/* Headline + capability spine */}
+          <div className="flex max-w-xl flex-1 flex-col justify-center py-8">
+            <div className="flex items-center gap-3 animate-rise" style={{ animationDelay: '60ms' }}>
+              <span className="h-px w-9 bg-[var(--brand)]/45" />
+              <span className="eyebrow eyebrow-brand">Gate &amp; community access</span>
+            </div>
 
-          {/* Error Banner with Shake Animation */}
-          {errorMessage && (
-            <div
-              key={errorShakeKey}
-              className="animate-shake mb-5 p-3.5 rounded-xl bg-rose-50/95 border border-rose-200 text-rose-800 text-xs sm:text-sm flex items-start gap-2.5 shadow-sm"
-              role="alert"
+            <h1
+              className="display mt-6 text-[2.5rem] xl:text-[3rem] text-balance animate-rise"
+              style={{ animationDelay: '120ms' }}
             >
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <div className="flex-1 font-medium leading-relaxed">{errorMessage}</div>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            {/* Email Field */}
-            <div>
-              <label
-                htmlFor="login-email"
-                className="field-label field-required text-xs font-semibold text-gray-700 uppercase tracking-wider"
-              >
-                Email or Username
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <input
-                  id="login-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (emailError) setEmailError('');
-                  }}
-                  disabled={isLoading}
-                  placeholder="name@example.com"
-                  autoComplete="username"
-                  className={`field pl-10 pr-3 py-2.5 text-sm ${emailError ? 'field-invalid' : ''}`}
-                />
-              </div>
-              {emailError && <p className="field-error">{emailError}</p>}
-            </div>
-
-            {/* Password Field */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label
-                  htmlFor="login-password"
-                  className="field-label field-required text-xs font-semibold text-gray-700 uppercase tracking-wider !mb-0"
-                >
-                  Password
-                </label>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  id="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (passwordError) setPasswordError('');
-                  }}
-                  disabled={isLoading}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  className={`field pl-10 pr-10 py-2.5 text-sm ${passwordError ? 'field-invalid' : ''}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-              {passwordError && <p className="field-error">{passwordError}</p>}
-            </div>
-
-            {/* Remember Me Checkbox */}
-            <div className="flex items-center justify-between pt-1">
-              <label className="inline-flex items-center gap-2.5 text-xs text-gray-600 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  disabled={isLoading}
-                  className="w-4 h-4 rounded border-gray-300 text-[#cd0447] focus:ring-[#cd0447] accent-[#cd0447] cursor-pointer"
-                />
-                <span>Remember me</span>
-              </label>
-
-              <span className="text-[11px] text-gray-400 flex items-center gap-1 font-medium">
-                <Sparkles className="w-3 h-3 text-[#cd0447]" />
-                Secure Portal
-              </span>
-            </div>
-
-            {/* Submit Button */}
-            <div className="pt-3">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="btn-primary w-full py-3 text-sm font-semibold shadow-md hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Signing in...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Sign In</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-
-          {/* Subtitle / Helper Information */}
-          <div className="mt-6 pt-5 border-t border-gray-100/80 text-center">
-            <p className="text-xs text-gray-400 leading-relaxed">
-              First time logging in with a temporary passcode?
+              Every arrival,
               <br />
-              You will be prompted to set a permanent password.
+              accounted for.
+            </h1>
+
+            <p
+              className="mt-5 max-w-md text-[15px] leading-relaxed text-[var(--ink-600)] animate-rise"
+              style={{ animationDelay: '180ms' }}
+            >
+              One console for society admins, gate guards and residents — from unit
+              records and staff rosters to the live entry stream.
             </p>
+
+            {/* Spine: a connector rail threading the three capability tiles */}
+            <div className="relative mt-12">
+              <span
+                className="absolute left-[1.4375rem] top-6 bottom-6 w-px bg-gradient-to-b from-[var(--brand)]/25 via-[var(--ink-200)] to-transparent"
+                aria-hidden="true"
+              />
+              <ul className="space-y-7">
+                {CAPABILITIES.map((cap, i) => {
+                  const Icon = cap.icon;
+                  return (
+                    <li
+                      key={cap.title}
+                      className="relative flex gap-5 animate-rise"
+                      style={{ animationDelay: `${240 + i * 90}ms` }}
+                    >
+                      <div className="relative z-10 grid h-[2.875rem] w-[2.875rem] shrink-0 place-items-center rounded-[var(--r-md)] border border-[var(--line)] bg-white text-[var(--brand)] shadow-[var(--e2)]">
+                        <Icon className="h-[1.15rem] w-[1.15rem] stroke-[1.9]" />
+                      </div>
+                      <div className="pt-1">
+                        <div className="text-[0.9375rem] font-semibold text-[var(--ink-900)]">
+                          {cap.title}
+                        </div>
+                        <p className="mt-1 max-w-sm text-[0.8125rem] leading-relaxed text-[var(--ink-500)]">
+                          {cap.body}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+
+          {/* Assurances */}
+          <div>
+            <div className="rule-fade-brand" />
+            <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+              {ASSURANCES.map((item) => (
+                <span
+                  key={item}
+                  className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ink-500)]"
+                >
+                  <span className="h-1 w-1 rounded-full bg-[var(--brand)]/60" />
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ==========================================================
+          RIGHT — the form pane.
+          ========================================================== */}
+      <section className="relative flex min-h-screen flex-col overflow-hidden bg-white">
+        {/* The form pane carries a quieter dot field so it reads as a surface
+            rather than blank paper next to the textured brand canvas. */}
+        <div
+          className="bg-field bg-field-dots field-fade-bottom"
+          style={{
+            ['--field-size' as string]: '24px',
+            ['--field-dot' as string]: 'rgba(20, 22, 26, 0.06)',
+          }}
+          aria-hidden="true"
+        />
+        <div className="lg:hidden">
+          <AuthCanvas variant="dots" fade="top" />
+        </div>
+
+        <div className="relative z-10 flex flex-1 flex-col justify-center px-5 py-10 sm:px-8 lg:px-12">
+          <div className="mx-auto w-full max-w-[26.5rem]">
+            {/* Mobile wordmark */}
+            <div className="mb-8 flex flex-col items-center lg:hidden">
+              <img
+                src={BRAND_CONFIG.logoFull}
+                alt={BRAND_CONFIG.name}
+                className="h-10 max-w-[220px] object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = BRAND_CONFIG.logoFullLocal;
+                }}
+              />
+              <p className="eyebrow mt-3 text-[10px]">{BRAND_CONFIG.tagline}</p>
+            </div>
+
+            {/* Form card — mirrors the boxed treatment used on the change-password
+                and modal surfaces, so the auth flow reads as one consistent system
+                instead of this pane floating free against the page background. */}
+            <div className="edge-brand animate-scale-in relative overflow-hidden rounded-[var(--r-xl)] border border-[var(--line)] bg-white p-6 shadow-[var(--e3)] sm:p-8">
+              {/* Heading */}
+              <header>
+                <div className="flex items-center gap-3">
+                  <span className="h-px w-6 bg-[var(--brand)]/50" />
+                  <span className="eyebrow eyebrow-brand text-[10px]">Secure sign-in</span>
+                </div>
+                <h2 className="display mt-4 text-[1.75rem]">Welcome back</h2>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--ink-500)]">
+                  Use the credentials issued for your society, gate or unit.
+                </p>
+              </header>
+
+              {/* Error banner */}
+              {errorMessage && (
+                <div
+                  key={errorShakeKey}
+                  className="animate-shake mt-6 flex items-start gap-3 rounded-[var(--r-md)] border border-rose-200 bg-rose-50 p-3.5 text-[0.8125rem] text-rose-800"
+                  role="alert"
+                >
+                  <AlertCircle className="mt-px h-4 w-4 shrink-0 text-rose-600" />
+                  <div className="flex-1 font-medium leading-relaxed">{errorMessage}</div>
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="mt-7 space-y-5" noValidate>
+                {/* Email / username */}
+                <div className="animate-rise" style={{ animationDelay: '80ms' }}>
+                  <label htmlFor="login-email" className="field-label field-required">
+                    Email or username
+                  </label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--ink-400)]">
+                      <Mail className="h-[1.05rem] w-[1.05rem]" />
+                    </span>
+                    <input
+                      id="login-email"
+                      type="text"
+                      inputMode="email"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (emailError) setEmailError('');
+                      }}
+                      disabled={isLoading}
+                      placeholder="name@example.com"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      className={`field field-lg field-icon-l ${emailError ? 'field-invalid' : ''}`}
+                    />
+                  </div>
+                  {emailError && <p className="field-error">{emailError}</p>}
+                </div>
+
+                {/* Password */}
+                <div className="animate-rise" style={{ animationDelay: '140ms' }}>
+                  <label htmlFor="login-password" className="field-label field-required">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--ink-400)]">
+                      <Lock className="h-[1.05rem] w-[1.05rem]" />
+                    </span>
+                    <input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (passwordError) setPasswordError('');
+                      }}
+                      onKeyUp={trackCapsLock}
+                      onKeyDown={trackCapsLock}
+                      onBlur={() => setIsCapsLockOn(false)}
+                      disabled={isLoading}
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      className={`field field-lg field-icon-l field-icon-r ${
+                        passwordError ? 'field-invalid' : ''
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-4 text-[var(--ink-400)] transition-colors hover:text-[var(--ink-700)] focus-visible:text-[var(--ink-700)] cursor-pointer"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-[1.05rem] w-[1.05rem]" />
+                      ) : (
+                        <Eye className="h-[1.05rem] w-[1.05rem]" />
+                      )}
+                    </button>
+                  </div>
+                  {passwordError && <p className="field-error">{passwordError}</p>}
+                  {isCapsLockOn && !passwordError && (
+                    <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-600">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      Caps Lock is on
+                    </p>
+                  )}
+                </div>
+
+                {/* Remember me */}
+                <label
+                  className="flex w-fit cursor-pointer select-none items-center gap-2.5 text-[0.8125rem] text-[var(--ink-600)] animate-rise"
+                  style={{ animationDelay: '200ms' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    disabled={isLoading}
+                    className="h-4 w-4 cursor-pointer rounded border-[var(--ink-300)] accent-[#cd0447]"
+                  />
+                  <span>Remember this account</span>
+                </label>
+
+                {/* Submit */}
+                <div className="pt-1 animate-rise" style={{ animationDelay: '260ms' }}>
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="btn-primary btn-lg btn-block"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Signing in…</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Sign in</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+
+              {/* First-time helper */}
+              <div className="mt-8 animate-rise" style={{ animationDelay: '320ms' }}>
+                <div className="rule-fade" />
+                <div className="mt-5 flex items-start gap-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--ink-50)] p-3.5">
+                  <KeyRound className="mt-px h-4 w-4 shrink-0 text-[var(--brand)]" />
+                  <p className="text-xs leading-relaxed text-[var(--ink-500)]">
+                    Signing in with a temporary passcode for the first time? You&apos;ll be
+                    asked to set a permanent password before continuing.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="text-center mt-6 text-xs text-gray-400">
-          &copy; {new Date().getFullYear()} iverto Platform. All rights reserved.
-        </div>
-      </div>
+        {/* Pane footer */}
+        <footer className="relative z-10 px-5 pb-7 sm:px-8 lg:px-12">
+          <div className="mx-auto flex w-full max-w-[26.5rem] flex-col items-center gap-1.5 text-center">
+            <span className="text-[11px] text-[var(--ink-500)] lg:hidden">
+              {ASSURANCES.join(' · ')}
+            </span>
+            <span className="text-[11px] text-[var(--ink-500)]">
+              &copy; {new Date().getFullYear()} iverto.ai
+            </span>
+          </div>
+        </footer>
+      </section>
     </div>
   );
 };

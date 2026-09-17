@@ -131,14 +131,14 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
 
   return (
     <>
-      <header className="sticky top-0 z-20 h-16 bg-white/80 backdrop-blur-xl border-b border-gray-200/80 px-4 sm:px-6 flex items-center justify-between gap-4 transition-all">
+      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b border-[var(--line)] bg-white/85 px-4 backdrop-blur-xl backdrop-saturate-150 sm:px-6">
         {/* Left Side: Mobile Menu Button & Context Selector */}
         <div className="flex items-center gap-3 min-w-0">
           {onMobileMenuToggle && (
             <button
               type="button"
               onClick={onMobileMenuToggle}
-              className="md:hidden icon-btn text-gray-600 hover:text-gray-900 -ml-1 cursor-pointer"
+              className="icon-btn -ml-1 md:hidden"
               aria-label="Open mobile navigation menu"
             >
               <Menu className="w-5 h-5" />
@@ -150,22 +150,29 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
             <button
               type="button"
               onClick={() => setIsContextDropdownOpen((prev) => !prev)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-gray-200 bg-white/90 hover:bg-gray-50/90 text-gray-800 text-xs sm:text-sm font-medium transition-all shadow-2xs cursor-pointer max-w-[220px] sm:max-w-xs md:max-w-sm"
+              className="flex max-w-[240px] cursor-pointer items-center gap-2.5 rounded-[var(--r-md)] border border-[var(--line)] bg-white py-1.5 pl-2 pr-3 text-left shadow-[var(--e1)] transition-all hover:border-[var(--line-strong)] hover:shadow-[var(--e2)] sm:max-w-xs md:max-w-sm"
               aria-expanded={isContextDropdownOpen}
               aria-haspopup="listbox"
             >
               {activeContext ? (
                 <>
-                  {getContextIcon(activeContext.type)}
-                  <span className="truncate text-left font-semibold">
-                    {activeContext.label}
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--r-xs)] bg-[var(--ink-50)] ring-1 ring-[var(--line)]">
+                    {getContextIcon(activeContext.type)}
+                  </span>
+                  <span className="min-w-0 flex-1 leading-tight">
+                    <span className="block truncate text-[13px] font-semibold text-[var(--ink-900)]">
+                      {activeContext.label}
+                    </span>
+                    <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-500)]">
+                      {activeContext.role}
+                    </span>
                   </span>
                 </>
               ) : (
-                <span className="text-gray-400">Select Context</span>
+                <span className="px-1 text-sm text-[var(--ink-500)]">Select context</span>
               )}
               <ChevronDown
-                className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform ${
+                className={`h-3.5 w-3.5 shrink-0 text-[var(--ink-400)] transition-transform ${
                   isContextDropdownOpen ? 'rotate-180' : ''
                 }`}
               />
@@ -173,9 +180,9 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
 
             {/* Dropdown Menu */}
             {isContextDropdownOpen && (
-              <div className="absolute left-0 mt-2 w-72 sm:w-80 rounded-2xl glass shadow-xl border border-white/80 py-2 z-50 animate-scale-in">
-                <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                  Switch Active Context
+              <div className="animate-scale-in absolute left-0 z-50 mt-2 w-72 rounded-[var(--r-lg)] border border-[var(--line)] bg-white py-2 shadow-[var(--e4)] sm:w-80">
+                <div className="px-4 py-1.5">
+                  <span className="eyebrow text-[10px]">Switch active context</span>
                 </div>
                 <div className="max-h-64 overflow-y-auto space-y-1 p-1">
                   {contexts.map((ctx) => {
@@ -185,17 +192,17 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
                         key={ctx.id}
                         type="button"
                         onClick={() => handleContextSwitch(ctx)}
-                        className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-left text-xs sm:text-sm transition-colors cursor-pointer ${
+                        className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-[var(--r-sm)] px-3 py-2 text-left text-sm transition-colors ${
                           isSelected
-                            ? 'bg-[#cd0447]/10 text-[#cd0447] font-semibold'
-                            : 'hover:bg-gray-100/80 text-gray-700'
+                            ? 'bg-[var(--brand-50)] font-semibold text-[var(--brand)]'
+                            : 'text-[var(--ink-700)] hover:bg-[var(--ink-50)]'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 truncate">
                           {getContextIcon(ctx.type)}
                           <div className="truncate">
                             <div className="truncate font-medium">{ctx.label}</div>
-                            <div className="text-[10px] text-gray-400 uppercase tracking-wider">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-500)]">
                               {ctx.role}
                             </div>
                           </div>
@@ -216,7 +223,11 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
         <div className="flex items-center gap-2.5 sm:gap-4">
           {/* Real-time Connection Status Dot */}
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100/80 border border-gray-200 text-[11px] font-semibold text-gray-600"
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] transition-colors ${
+              isConnected
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-amber-200 bg-amber-50 text-amber-700'
+            }`}
             title={isConnected ? 'Real-time WebSocket Live' : 'Connecting to real-time service'}
           >
             <span
@@ -234,7 +245,7 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
           {/* Notification Bell */}
           <button
             type="button"
-            className="relative icon-btn text-gray-500 hover:text-gray-900 cursor-pointer"
+            className="icon-btn relative"
             aria-label="View notifications"
             onClick={() => toast.info('No new notifications')}
           >
@@ -247,34 +258,34 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
             <button
               type="button"
               onClick={() => setIsProfileDropdownOpen((prev) => !prev)}
-              className="flex items-center gap-2.5 p-1 sm:px-2.5 sm:py-1 rounded-full border border-gray-200/80 bg-white hover:bg-gray-50 transition-all cursor-pointer"
+              className="flex cursor-pointer items-center gap-2.5 rounded-full border border-[var(--line)] bg-white p-1 shadow-[var(--e1)] transition-all hover:border-[var(--line-strong)] hover:shadow-[var(--e2)] sm:py-1 sm:pl-1 sm:pr-3"
               aria-expanded={isProfileDropdownOpen}
               aria-haspopup="menu"
             >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#cd0447] to-[#e91e63] text-white flex items-center justify-center font-bold text-xs shadow-xs">
+              <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-[#cd0447] to-[#e91e63] text-xs font-bold text-white shadow-[0_4px_10px_-4px_rgba(205,4,71,0.8)]">
                 {user?.name ? user.name.charAt(0).toUpperCase() : <UserIcon className="w-4 h-4" />}
               </div>
               <div className="hidden sm:flex flex-col text-left leading-tight">
-                <span className="text-xs font-semibold text-gray-900 truncate max-w-[100px]">
+                <span className="max-w-[110px] truncate text-[13px] font-semibold text-[var(--ink-900)]">
                   {user?.name || 'User'}
                 </span>
-                <span className="text-[10px] text-gray-400 truncate">
+                <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-500)]">
                   {user?.isSuperadmin
                     ? 'Superadmin'
                     : activeContext?.role || 'Resident'}
                 </span>
               </div>
-              <ChevronDown className="hidden sm:block w-3.5 h-3.5 text-gray-400" />
+              <ChevronDown className="hidden h-3.5 w-3.5 text-[var(--ink-400)] sm:block" />
             </button>
 
             {/* Profile Dropdown */}
             {isProfileDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-2xl glass shadow-xl border border-white/80 py-2 z-50 animate-scale-in">
-                <div className="px-4 py-2 border-b border-gray-100">
-                  <p className="text-xs font-semibold text-gray-900 truncate">
+              <div className="animate-scale-in absolute right-0 z-50 mt-2 w-60 rounded-[var(--r-lg)] border border-[var(--line)] bg-white py-2 shadow-[var(--e4)]">
+                <div className="border-b border-[var(--line)] px-4 pb-3 pt-1">
+                  <p className="truncate text-sm font-semibold text-[var(--ink-900)]">
                     {user?.name}
                   </p>
-                  <p className="text-[11px] text-gray-500 truncate">{user?.email}</p>
+                  <p className="truncate text-[11px] text-[var(--ink-500)]">{user?.email}</p>
                   {user?.isSuperadmin && (
                     <div className="mt-1">
                       <Badge variant="purple" size="sm">
@@ -291,17 +302,17 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
                       setIsProfileDropdownOpen(false);
                       setIsChangePasswordOpen(true);
                     }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100/80 transition-colors cursor-pointer"
+                    className="flex w-full cursor-pointer items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--ink-700)] transition-colors hover:bg-[var(--ink-50)]"
                   >
-                    <KeyRound className="w-4 h-4 text-gray-500" />
+                    <KeyRound className="h-4 w-4 text-[var(--ink-400)]" />
                     <span>Change Password</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 text-xs sm:text-sm text-rose-600 hover:bg-rose-50/80 transition-colors cursor-pointer"
+                    className="flex w-full cursor-pointer items-center gap-2.5 px-4 py-2.5 text-sm text-rose-600 transition-colors hover:bg-rose-50"
                   >
-                    <LogOut className="w-4 h-4 text-rose-500" />
+                    <LogOut className="h-4 w-4 text-rose-500" />
                     <span>Sign Out</span>
                   </button>
                 </div>
@@ -325,7 +336,7 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
       >
         <form onSubmit={handleChangePasswordSubmit} className="space-y-4">
           {passwordError && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
+            <div className="rounded-[var(--r-md)] border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
               {passwordError}
             </div>
           )}
@@ -340,7 +351,7 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
               required
               minLength={8}
               disabled={isChangingPassword}
-              className="field text-sm"
+              className="field"
             />
           </div>
 
@@ -354,11 +365,11 @@ export const Topbar: React.FC<TopbarProps> = ({ onMobileMenuToggle }) => {
               required
               minLength={8}
               disabled={isChangingPassword}
-              className="field text-sm"
+              className="field"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+          <div className="flex items-center justify-end gap-3 border-t border-[var(--line)] pt-4">
             <button
               type="button"
               onClick={() => setIsChangePasswordOpen(false)}

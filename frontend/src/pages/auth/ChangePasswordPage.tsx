@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useRole } from '../../context/RoleContext';
 import { useToast } from '../../context/ToastContext';
+import AuthCanvas from '../../components/layout/AuthCanvas';
 
 export const ChangePasswordPage: React.FC = () => {
   const navigate = useNavigate();
@@ -96,46 +97,35 @@ export const ChangePasswordPage: React.FC = () => {
   };
 
   return (
-    <div className="login-bg min-h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 relative selection:bg-[#cd0447]/10 selection:text-[#cd0447]">
-      {/* Background Decorative Grid */}
-      <div className="login-grid" aria-hidden="true" />
-
-      {/* Background Glowing Orbs */}
-      <div
-        className="login-orb w-80 h-80 sm:w-96 sm:h-96 -top-20 -left-20 bg-pink-500/25"
-        aria-hidden="true"
-      />
-      <div
-        className="login-orb w-80 h-80 sm:w-96 sm:h-96 -bottom-20 -right-20 bg-rose-400/20"
-        aria-hidden="true"
-      />
-      <div
-        className="login-orb w-64 h-64 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-amber-200/20"
-        aria-hidden="true"
-      />
+    <div className="relative min-h-screen w-full overflow-hidden bg-[var(--canvas)] flex items-center justify-center p-4 sm:p-6 lg:p-8">
+      <AuthCanvas variant="grid" fade="center" />
 
       {/* Main Container */}
       <div className="w-full max-w-md relative z-10 animate-fade-in-up">
         {/* Brand / Header */}
-        <div className="text-center mb-6 space-y-2">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#cd0447] to-[#e91e63] text-white shadow-lg shadow-pink-500/25 mb-2 hover:scale-105 transition-transform duration-200">
-            <KeyRound className="w-7 h-7 stroke-[2.2]" />
+        <div className="mb-7 text-center">
+          <div className="inline-grid h-14 w-14 place-items-center rounded-[var(--r-lg)] bg-gradient-to-br from-[#cd0447] to-[#e91e63] text-white shadow-[0_10px_24px_-10px_rgba(205,4,71,0.7)]">
+            <KeyRound className="h-7 w-7 stroke-[2.1]" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900 font-sans">
-            Set Permanent Password
-          </h1>
-          <p className="text-xs sm:text-sm text-gray-500 max-w-sm mx-auto">
-            You are logged in with temporary credentials. For security, please set a new password before accessing your dashboard.
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <span className="h-px w-6 bg-[var(--brand)]/45" />
+            <span className="eyebrow eyebrow-brand text-[10px]">One step remaining</span>
+            <span className="h-px w-6 bg-[var(--brand)]/45" />
+          </div>
+          <h1 className="display mt-4 text-[1.75rem] sm:text-3xl">Set a permanent password</h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[var(--ink-500)]">
+            You signed in with temporary credentials. Choose a new password to unlock
+            your dashboard.
           </p>
         </div>
 
         {/* Change Password Card */}
-        <div className="glass rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/80">
+        <div className="edge-brand rounded-[var(--r-xl)] border border-[var(--line)] bg-white p-6 shadow-[var(--e4)] sm:p-8">
           {/* User Identifier Tile */}
           {user?.email && (
-            <div className="mb-5 p-3 rounded-xl bg-gray-50/80 border border-gray-200/80 flex items-center justify-between text-xs">
-              <span className="text-gray-500">Account:</span>
-              <span className="font-semibold text-gray-800 font-mono truncate max-w-[200px]">
+            <div className="well mb-6 flex items-center justify-between gap-3 p-3 text-xs">
+              <span className="eyebrow text-[10px]">Account</span>
+              <span className="truncate font-mono font-semibold text-[var(--ink-800)]">
                 {user.email}
               </span>
             </div>
@@ -166,16 +156,13 @@ export const ChangePasswordPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             {/* New Password Field */}
             <div>
-              <label
-                htmlFor="new-password"
-                className="field-label field-required text-xs font-semibold text-gray-700 uppercase tracking-wider"
-              >
-                New Password
+              <label htmlFor="new-password" className="field-label field-required">
+                New password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                  <Lock className="w-4 h-4" />
-                </div>
+                <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--ink-400)]">
+                  <Lock className="h-[1.05rem] w-[1.05rem]" />
+                </span>
                 <input
                   id="new-password"
                   type={showNewPassword ? 'text' : 'password'}
@@ -184,13 +171,12 @@ export const ChangePasswordPage: React.FC = () => {
                   disabled={isLoading || isSuccess}
                   placeholder="Enter new password"
                   autoComplete="new-password"
-                  className="field pl-10 pr-10 py-2.5 text-sm"
+                  className="field field-lg field-icon-l field-icon-r"
                 />
                 <button
                   type="button"
                   onClick={() => setShowNewPassword(!showNewPassword)}
-                  tabIndex={-1}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                  className="absolute inset-y-0 right-0 flex items-center pr-4 text-[var(--ink-400)] transition-colors hover:text-[var(--ink-700)] focus-visible:text-[var(--ink-700)] cursor-pointer"
                   aria-label={showNewPassword ? 'Hide password' : 'Show password'}
                 >
                   {showNewPassword ? (
@@ -204,16 +190,13 @@ export const ChangePasswordPage: React.FC = () => {
 
             {/* Confirm Password Field */}
             <div>
-              <label
-                htmlFor="confirm-password"
-                className="field-label field-required text-xs font-semibold text-gray-700 uppercase tracking-wider"
-              >
-                Confirm New Password
+              <label htmlFor="confirm-password" className="field-label field-required">
+                Confirm new password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                  <Lock className="w-4 h-4" />
-                </div>
+                <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--ink-400)]">
+                  <Lock className="h-[1.05rem] w-[1.05rem]" />
+                </span>
                 <input
                   id="confirm-password"
                   type={showConfirmPassword ? 'text' : 'password'}
@@ -222,13 +205,12 @@ export const ChangePasswordPage: React.FC = () => {
                   disabled={isLoading || isSuccess}
                   placeholder="Re-enter new password"
                   autoComplete="new-password"
-                  className="field pl-10 pr-10 py-2.5 text-sm"
+                  className="field field-lg field-icon-l field-icon-r"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  tabIndex={-1}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                  className="absolute inset-y-0 right-0 flex items-center pr-4 text-[var(--ink-400)] transition-colors hover:text-[var(--ink-700)] focus-visible:text-[var(--ink-700)] cursor-pointer"
                   aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                 >
                   {showConfirmPassword ? (
@@ -241,8 +223,8 @@ export const ChangePasswordPage: React.FC = () => {
             </div>
 
             {/* Password Criteria Checklist */}
-            <div className="p-3.5 rounded-xl bg-gray-50/90 border border-gray-200/80 space-y-2 text-xs">
-              <div className="font-semibold text-gray-700">Password Requirements:</div>
+            <div className="well space-y-2 p-3.5 text-xs">
+              <div className="eyebrow text-[10px]">Password requirements</div>
               <div className="grid grid-cols-1 gap-1.5 pt-0.5">
                 <div
                   className={`flex items-center gap-2 transition-colors ${
@@ -305,7 +287,7 @@ export const ChangePasswordPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={isLoading || isSuccess || !isFormValid}
-                className="btn-primary w-full py-3 text-sm font-semibold shadow-md hover:shadow-lg flex items-center justify-center gap-2 disabled:opacity-60"
+                className="btn-primary btn-lg btn-block"
               >
                 {isLoading ? (
                   <>

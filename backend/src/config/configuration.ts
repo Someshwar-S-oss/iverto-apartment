@@ -14,8 +14,17 @@ export default () => {
     ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
     : '*';
 
+  // Path segment this instance is namespaced under when it sits behind a shared reverse
+  // proxy (Caddy) alongside other Nest apps on the same host, e.g. "gate" so this app
+  // owns everything under /gate/* while a sibling app owns /other/*. Strip any leading
+  // /trailing slashes the operator may have included so it composes cleanly below.
+  // Empty by default — local dev and single-app deployments are unaffected.
+  const apiPrefix = (process.env.API_PREFIX || '').replace(/^\/+|\/+$/g, '');
+  const m50Path = process.env.M50_WS_PATH || '/m50';
+
   return {
     port: parseInt(process.env.PORT || '8031', 10),
+    apiPrefix,
     database: {
       url: process.env.DATABASE_URL || '',
     },
@@ -35,7 +44,11 @@ export default () => {
       origins: corsOrigins,
     },
     m50: {
-      path: process.env.M50_WS_PATH || '/m50',
+      // The M50 raw WebSocket upgrade handler runs outside Nest's HTTP router (see
+      // SharedHttpIoAdapter), so setGlobalPrefix in main.ts never touches it — the prefix
+      // has to be folded into the path by hand so Caddy can still route the terminals'
+      // upgrade requests to this app by the same /API_PREFIX/* rule as everything else.
+      path: apiPrefix ? `/${apiPrefix}${m50Path}` : m50Path,
       cloudId: process.env.M50_CLOUD_ID || '',
     },
   };

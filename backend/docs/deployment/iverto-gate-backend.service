@@ -1,0 +1,36 @@
+# systemd unit for this app (the "gate" backend). Install as
+# /etc/systemd/system/iverto-gate-backend.service — see docs/deployment/ec2-caddy-systemd.md.
+#
+# The sibling NestJS app gets its own copy of this file (e.g.
+# iverto-other-backend.service) with WorkingDirectory/EnvironmentFile pointed at its
+# own directory and its own PORT/API_PREFIX in its .env.
+
+[Unit]
+Description=Iverto Gate Backend (NestJS)
+After=network.target
+
+[Service]
+Type=simple
+User=iverto
+Group=iverto
+WorkingDirectory=/opt/iverto/gate-backend
+EnvironmentFile=/opt/iverto/gate-backend/.env
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening — this process only needs to read its own working directory and talk to
+# the network (Neon, Redis, Firebase are all external over TLS).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/iverto/gate-backend
+ProtectHome=true
+
+# App logs go to stdout/stderr; journald captures them (see `journalctl -u iverto-gate-backend`).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iverto-gate-backend
+
+[Install]
+WantedBy=multi-user.target

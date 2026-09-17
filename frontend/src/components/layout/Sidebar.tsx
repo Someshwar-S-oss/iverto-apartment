@@ -224,35 +224,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navGroups = getNavItems();
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-white/95 backdrop-blur-xl border-r border-gray-200/80 select-none shadow-sm transition-all duration-300">
+    <div className="flex h-full flex-col select-none border-r border-[var(--line)] bg-[var(--ink-50)]">
       {/* Brand Header */}
       <div
-        className={`h-16 flex items-center px-4 border-b border-gray-100/90 ${
-          isCollapsed ? 'justify-center' : 'justify-between'
+        className={`flex h-16 shrink-0 items-center border-b border-[var(--line)] bg-white px-4 ${
+          isCollapsed ? 'justify-center px-2' : 'justify-between'
         }`}
       >
         {isCollapsed ? (
-          <div className="flex items-center justify-center">
-            <img
-              src={BRAND_CONFIG.logoIcon}
-              alt={BRAND_CONFIG.name}
-              className="w-9 h-9 object-contain drop-shadow-xs transition-transform duration-200 hover:scale-105"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = BRAND_CONFIG.logoIconLocal;
-              }}
-            />
-          </div>
+          <img
+            src={BRAND_CONFIG.logoIcon}
+            alt={BRAND_CONFIG.name}
+            className="h-9 w-9 object-contain"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = BRAND_CONFIG.logoIconLocal;
+            }}
+          />
         ) : (
-          <div className="flex items-center gap-3 overflow-hidden">
-            <img
-              src={BRAND_CONFIG.logoFull}
-              alt={BRAND_CONFIG.name}
-              className="h-8 max-w-[170px] object-contain object-left drop-shadow-xs transition-all duration-200"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = BRAND_CONFIG.logoFullLocal;
-              }}
-            />
-          </div>
+          <img
+            src={BRAND_CONFIG.logoFull}
+            alt={BRAND_CONFIG.name}
+            className="h-8 max-w-[170px] object-contain object-left"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = BRAND_CONFIG.logoFullLocal;
+            }}
+          />
         )}
 
         {/* Mobile close button */}
@@ -260,23 +256,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={onMobileClose}
-            className="md:hidden icon-btn text-gray-500 hover:text-gray-900"
+            className="icon-btn md:hidden"
             aria-label="Close navigation menu"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
         )}
       </div>
 
       {/* Navigation Sections */}
-      <div className="flex-1 overflow-y-auto py-4 px-3 space-y-6 scrollbar-none">
+      <div className="scrollbar-none flex-1 space-y-7 overflow-y-auto px-3 py-5">
         {navGroups.map((group, groupIdx) => (
           <div key={`nav-group-${groupIdx}`} className="space-y-1">
-            {!isCollapsed && group.section && (
-              <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                {group.section}
-              </div>
-            )}
+            {group.section &&
+              (isCollapsed ? (
+                <div className="mx-auto mb-3 h-px w-7 bg-[var(--line-strong)]" aria-hidden="true" />
+              ) : (
+                <div className="mb-2.5 flex items-center gap-2.5 px-2">
+                  <span className="eyebrow whitespace-nowrap text-[10px]">
+                    {group.section}
+                  </span>
+                  <span className="h-px flex-1 bg-[var(--line)]" aria-hidden="true" />
+                </div>
+              ))}
+
             {group.items.map((item) => {
               const Icon = item.icon;
               return (
@@ -285,31 +288,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   to={item.path}
                   title={isCollapsed ? item.label : undefined}
                   className={({ isActive }) =>
-                    `group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    `group relative flex items-center gap-3 rounded-[var(--r-md)] px-3 py-2.5 text-sm transition-all duration-200 ${
                       isCollapsed ? 'justify-center px-2' : ''
                     } ${
                       isActive
-                        ? 'bg-gradient-to-r from-[#cd0447] to-[#e91e63] text-white shadow-md shadow-[#cd0447]/25 font-semibold'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
+                        ? 'bg-white font-semibold text-[var(--brand)] shadow-[var(--e2)] ring-1 ring-[var(--line)]'
+                        : 'font-medium text-[var(--ink-600)] hover:bg-white/70 hover:text-[var(--ink-900)]'
                     }`
                   }
                 >
                   {({ isActive }) => (
                     <>
+                      {/* Active rail — a brand tick on the leading edge */}
+                      {isActive && (
+                        <span
+                          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gradient-to-b from-[#cd0447] to-[#e91e63]"
+                          aria-hidden="true"
+                        />
+                      )}
+
                       <Icon
-                        className={`w-5 h-5 shrink-0 transition-transform group-hover:scale-110 ${
-                          isActive ? 'text-white' : 'text-gray-500 group-hover:text-gray-900'
+                        className={`h-[1.15rem] w-[1.15rem] shrink-0 transition-colors ${
+                          isActive
+                            ? 'text-[var(--brand)] stroke-[2.1]'
+                            : 'text-[var(--ink-400)] group-hover:text-[var(--ink-700)]'
                         }`}
                       />
-                      {!isCollapsed && (
-                        <span className="truncate flex-1">{item.label}</span>
-                      )}
+                      {!isCollapsed && <span className="flex-1 truncate">{item.label}</span>}
                       {!isCollapsed && item.badge !== undefined && (
                         <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
                             isActive
-                              ? 'bg-white/20 text-white'
-                              : 'bg-[#cd0447]/10 text-[#cd0447]'
+                              ? 'bg-[var(--brand-50)] text-[var(--brand)]'
+                              : 'bg-[var(--ink-200)] text-[var(--ink-600)]'
                           }`}
                         >
                           {item.badge}
@@ -318,7 +329,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                       {/* Tooltip for collapsed state */}
                       {isCollapsed && (
-                        <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg whitespace-nowrap shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+                        <div className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-[var(--r-xs)] bg-[var(--ink-900)] px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-[var(--e3)] transition-opacity group-hover:opacity-100">
                           {item.label}
                         </div>
                       )}
@@ -332,19 +343,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Collapse Toggle Footer for Desktop */}
-      <div className="hidden md:flex p-3 border-t border-gray-100/90 justify-center">
+      <div className="hidden shrink-0 border-t border-[var(--line)] p-3 md:block">
         <button
           type="button"
           onClick={toggleCollapse}
-          className="w-full flex items-center justify-center gap-2 p-2 rounded-xl text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer text-xs font-medium"
+          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[var(--r-sm)] p-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-500)] transition-colors hover:bg-white hover:text-[var(--ink-900)]"
           aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {isCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="h-4 w-4" />
           ) : (
             <>
-              <ChevronLeft className="w-4 h-4" />
-              <span>Collapse Sidebar</span>
+              <ChevronLeft className="h-4 w-4" />
+              <span>Collapse</span>
             </>
           )}
         </button>
@@ -371,7 +382,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Backdrop */}
         <div
-          className={`fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity duration-300 ${
+          className={`fixed inset-0 bg-[var(--ink-900)]/45 backdrop-blur-sm transition-opacity duration-300 ${
             isMobileOpen ? 'opacity-100' : 'opacity-0'
           }`}
           onClick={onMobileClose}
@@ -380,7 +391,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Sliding Panel */}
         <div
-          className={`relative w-72 max-w-[80vw] h-full shadow-2xl transition-transform duration-300 ease-out ${
+          className={`relative h-full w-72 max-w-[82vw] shadow-[var(--e4)] transition-transform duration-300 ease-out ${
             isMobileOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >

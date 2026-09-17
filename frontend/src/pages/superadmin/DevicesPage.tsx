@@ -661,12 +661,12 @@ export const DevicesPage: React.FC = () => {
             <div>
               <label className="field-label">Gate Assignment (Optional)</label>
               <div className="relative">
-                <DoorOpen className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none z-10" />
+                <DoorOpen className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-400)] pointer-events-none z-10" />
                 <select
                   value={formData.gateId || ''}
                   onChange={(e) => setFormData({ ...formData, gateId: e.target.value })}
                   disabled={isSubmitting || !formData.societyId}
-                  className="field !pl-10"
+                  className="field field-icon-l"
                 >
                   <option value="">No gate assigned</option>
                   {societyGates.map((g) => (
@@ -711,14 +711,14 @@ export const DevicesPage: React.FC = () => {
                 </button>
               </div>
               <div className="relative">
-                <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-400)] pointer-events-none" />
                 <input
                   type="text"
                   value={formData.authToken || ''}
                   onChange={(e) => setFormData({ ...formData, authToken: e.target.value })}
                   placeholder="e.g. sec_9b2d8e4f1a0c..."
                   disabled={isSubmitting}
-                  className="field font-mono text-xs !pl-10"
+                  className="field field-icon-l font-mono text-xs"
                 />
               </div>
               <p className="field-hint">Used for device MQTT / HTTP heartbeat signature verification.</p>

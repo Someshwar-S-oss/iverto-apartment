@@ -235,7 +235,7 @@ export const VisitorEntryModal: React.FC<VisitorEntryModalProps> = ({
                   value={unitSearchQuery}
                   onChange={(e) => setUnitSearchQuery(e.target.value)}
                   placeholder="Type flat number (e.g. 402, B-101) or resident name..."
-                  className="input-base !pl-10 w-full text-sm font-medium"
+                  className="field field-icon-l w-full text-sm font-medium"
                   autoFocus
                 />
                 {isSearchingDirectory && (

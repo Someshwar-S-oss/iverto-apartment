@@ -543,7 +543,7 @@ Login URL: ${window.location.origin}/login`;
               <div className="sm:col-span-2">
                 <label className="field-label field-required">Master Admin Full Name</label>
                 <div className="relative">
-                  <UserCheck className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <UserCheck className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-400)] pointer-events-none" />
                   <input
                     type="text"
                     value={formData.adminName}
@@ -553,7 +553,7 @@ Login URL: ${window.location.origin}/login`;
                     }}
                     placeholder="e.g. Rajesh Kumar"
                     disabled={isSubmitting}
-                    className={`field !pl-10 ${formErrors.adminName ? 'field-invalid' : ''}`}
+                    className={`field field-icon-l ${formErrors.adminName ? 'field-invalid' : ''}`}
                   />
                 </div>
                 {formErrors.adminName && <p className="field-error">{formErrors.adminName}</p>}
@@ -562,7 +562,7 @@ Login URL: ${window.location.origin}/login`;
               <div>
                 <label className="field-label field-required">Admin Email Address</label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-400)] pointer-events-none" />
                   <input
                     type="email"
                     value={formData.adminEmail}
@@ -572,7 +572,7 @@ Login URL: ${window.location.origin}/login`;
                     }}
                     placeholder="admin@society.org"
                     disabled={isSubmitting}
-                    className={`field !pl-10 ${formErrors.adminEmail ? 'field-invalid' : ''}`}
+                    className={`field field-icon-l ${formErrors.adminEmail ? 'field-invalid' : ''}`}
                   />
                 </div>
                 {formErrors.adminEmail && <p className="field-error">{formErrors.adminEmail}</p>}
@@ -581,7 +581,7 @@ Login URL: ${window.location.origin}/login`;
               <div>
                 <label className="field-label field-required">Admin Phone Number</label>
                 <div className="relative">
-                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-400)] pointer-events-none" />
                   <input
                     type="tel"
                     value={formData.adminPhone}
@@ -591,7 +591,7 @@ Login URL: ${window.location.origin}/login`;
                     }}
                     placeholder="+919876543210"
                     disabled={isSubmitting}
-                    className={`field !pl-10 ${formErrors.adminPhone ? 'field-invalid' : ''}`}
+                    className={`field field-icon-l ${formErrors.adminPhone ? 'field-invalid' : ''}`}
                   />
                 </div>
                 {formErrors.adminPhone && <p className="field-error">{formErrors.adminPhone}</p>}

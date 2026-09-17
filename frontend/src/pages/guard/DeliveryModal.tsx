@@ -398,7 +398,7 @@ export const DeliveryModal: React.FC<DeliveryModalProps> = ({
                   value={unitSearchQuery}
                   onChange={(e) => setUnitSearchQuery(e.target.value)}
                   placeholder="Type flat number (e.g. 402, A-102) to check rules..."
-                  className="input-base !pl-10 w-full text-sm font-medium"
+                  className="field field-icon-l w-full text-sm font-medium"
                 />
                 {isSearchingDirectory && (
                   <Loader2 className="w-4 h-4 text-amber-600 animate-spin absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />

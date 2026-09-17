@@ -13,14 +13,16 @@ export const TableSkeleton: React.FC<TableSkeletonProps> = ({
   className = '',
 }) => {
   return (
-    <div className={`w-full overflow-hidden rounded-xl border border-gray-200 bg-white ${className}`}>
-      <div className="animate-pulse divide-y divide-gray-200">
+    <div
+      className={`w-full overflow-hidden rounded-[var(--r-md)] border border-[var(--line)] bg-white ${className}`}
+    >
+      <div className="animate-pulse divide-y divide-[var(--ink-100)]">
         {/* Skeleton Header */}
-        <div className="bg-gray-50/80 px-6 py-3.5 flex items-center gap-4">
+        <div className="flex items-center gap-4 bg-[var(--ink-50)] px-6 py-3.5">
           {Array.from({ length: columns }).map((_, i) => (
             <div
               key={`th-${i}`}
-              className="h-3.5 bg-gray-200 rounded-md"
+              className="h-3 rounded-full bg-[var(--ink-200)]"
               style={{
                 width: `${Math.max(60, Math.floor(100 / columns) * 0.8)}%`,
               }}
@@ -30,17 +32,14 @@ export const TableSkeleton: React.FC<TableSkeletonProps> = ({
 
         {/* Skeleton Rows */}
         {Array.from({ length: rows }).map((_, rowIndex) => (
-          <div
-            key={`tr-${rowIndex}`}
-            className="px-6 py-4 flex items-center gap-4"
-          >
+          <div key={`tr-${rowIndex}`} className="flex items-center gap-4 px-6 py-4">
             {Array.from({ length: columns }).map((_, colIndex) => {
               // Staggered width calculation for natural look
               const widthVariation = 40 + ((rowIndex * 17 + colIndex * 23) % 45);
               return (
                 <div
                   key={`td-${rowIndex}-${colIndex}`}
-                  className="h-4 bg-gray-100 rounded-md"
+                  className="h-3.5 rounded-full bg-[var(--ink-100)]"
                   style={{ width: `${widthVariation}%` }}
                 />
               );
@@ -69,20 +68,30 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => {
   return (
     <div
-      className={`card p-10 flex flex-col items-center justify-center text-center space-y-4 max-w-lg mx-auto ${className}`}
+      className={`card-static relative mx-auto flex max-w-lg flex-col items-center justify-center overflow-hidden p-12 text-center ${className}`}
     >
-      <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-200/80 flex items-center justify-center text-gray-400 shadow-xs">
-        <Icon className="w-8 h-8 stroke-[1.5]" />
-      </div>
-      <div className="space-y-1.5">
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+      {/* A dot field behind the glyph keeps the empty case from reading as broken */}
+      <div
+        className="bg-field bg-field-dots field-fade-center"
+        style={{
+          ['--field-size' as string]: '20px',
+          ['--field-dot' as string]: 'rgba(20, 22, 26, 0.07)',
+        }}
+        aria-hidden="true"
+      />
+
+      <div className="relative z-10 flex flex-col items-center">
+        <div className="grid h-16 w-16 place-items-center rounded-[var(--r-lg)] border border-[var(--line)] bg-white text-[var(--ink-400)] shadow-[var(--e2)]">
+          <Icon className="h-7 w-7 stroke-[1.5]" />
+        </div>
+        <h3 className="mt-5 text-lg font-semibold text-[var(--ink-900)]">{title}</h3>
         {description && (
-          <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[var(--ink-500)]">
             {description}
           </p>
         )}
+        {action && <div className="pt-6">{action}</div>}
       </div>
-      {action && <div className="pt-2">{action}</div>}
     </div>
   );
 };
@@ -100,34 +109,28 @@ export const NoResultsState: React.FC<NoResultsStateProps> = ({
 }) => {
   return (
     <div
-      className={`card p-10 flex flex-col items-center justify-center text-center space-y-4 max-w-md mx-auto ${className}`}
+      className={`card-static mx-auto flex max-w-md flex-col items-center justify-center p-10 text-center ${className}`}
     >
-      <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500">
-        <SearchX className="w-7 h-7 stroke-[1.5]" />
+      <div className="grid h-14 w-14 place-items-center rounded-[var(--r-md)] border border-rose-100 bg-rose-50 text-rose-500">
+        <SearchX className="h-6 w-6 stroke-[1.6]" />
       </div>
-      <div className="space-y-1">
-        <h3 className="text-base font-semibold text-gray-900">
-          No matching results
-        </h3>
-        <p className="text-sm text-gray-500">
-          {query ? (
-            <>
-              No results found for{' '}
-              <span className="font-semibold text-gray-700">"{query}"</span>.
-              Try checking for typos or searching with different keywords.
-            </>
-          ) : (
-            'No results found for your current filter criteria.'
-          )}
-        </p>
-      </div>
+      <h3 className="mt-5 text-base font-semibold text-[var(--ink-900)]">
+        No matching results
+      </h3>
+      <p className="mt-1.5 text-sm leading-relaxed text-[var(--ink-500)]">
+        {query ? (
+          <>
+            Nothing matched{' '}
+            <span className="font-semibold text-[var(--ink-800)]">&ldquo;{query}&rdquo;</span>.
+            Check for typos or try different keywords.
+          </>
+        ) : (
+          'Nothing matched your current filter criteria.'
+        )}
+      </p>
       {onClear && (
-        <button
-          type="button"
-          onClick={onClear}
-          className="btn-secondary text-xs !py-1.5 !px-3"
-        >
-          Clear Filter
+        <button type="button" onClick={onClear} className="btn-secondary btn-sm mt-5">
+          Clear filter
         </button>
       )}
     </div>
@@ -153,13 +156,15 @@ export const CenteredSpinner: React.FC<CenteredSpinnerProps> = ({
 }) => {
   return (
     <div
-      className={`flex flex-col items-center justify-center p-8 space-y-3 ${className}`}
+      className={`flex flex-col items-center justify-center space-y-3 p-10 ${className}`}
       role="status"
     >
-      <Loader2
-        className={`${spinnerSizes[size]} text-[#cd0447] animate-spin`}
-      />
-      {label && <p className="text-sm font-medium text-gray-500">{label}</p>}
+      <Loader2 className={`${spinnerSizes[size]} animate-spin text-[var(--brand)]`} />
+      {label && (
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--ink-500)]">
+          {label}
+        </p>
+      )}
       <span className="sr-only">{label}</span>
     </div>
   );

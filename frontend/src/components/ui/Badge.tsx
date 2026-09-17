@@ -37,12 +37,12 @@ const variantStyles: Record<BadgeVariant, { bg: string; dot: string }> = {
     dot: 'bg-sky-500',
   },
   neutral: {
-    bg: 'bg-gray-100 text-gray-700 border-gray-200',
-    dot: 'bg-gray-400',
+    bg: 'bg-[var(--ink-50)] text-[var(--ink-600)] border-[var(--line)]',
+    dot: 'bg-[var(--ink-400)]',
   },
   brand: {
-    bg: 'bg-pink-50 text-[#cd0447] border-pink-200',
-    dot: 'bg-[#cd0447]',
+    bg: 'bg-[var(--brand-50)] text-[var(--brand)] border-[var(--brand-100)]',
+    dot: 'bg-[var(--brand)]',
   },
   purple: {
     bg: 'bg-purple-50 text-purple-700 border-purple-200',
@@ -68,7 +68,7 @@ export const Badge: React.FC<BadgeProps> = ({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-semibold uppercase tracking-wider rounded-full border transition-colors ${currentVariant.bg} ${currentSize} ${className}`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border font-bold uppercase tracking-[0.08em] transition-colors ${currentVariant.bg} ${currentSize} ${className}`}
       {...props}
     >
       {dot && (

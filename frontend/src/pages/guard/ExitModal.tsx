@@ -149,7 +149,7 @@ export const ExitModal: React.FC<ExitModalProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search active visitors by name, flat number (e.g. 402), or phone..."
-            className="input-base !pl-10 w-full text-sm"
+            className="field field-icon-l w-full text-sm"
             autoFocus
           />
           {searchQuery && (

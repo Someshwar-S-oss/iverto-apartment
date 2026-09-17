@@ -1,0 +1,41 @@
+# Install as /etc/caddy/Caddyfile — see docs/deployment/ec2-caddy-systemd.md.
+#
+# One domain, two NestJS apps sharing the box, routed purely by path prefix. Each
+# `handle` block matches the exact prefix that app's own API_PREFIX sets via
+# setGlobalPrefix (see src/main.ts) — Caddy does NOT strip the prefix before
+# forwarding, so the app's own view of its routes matches the outside world exactly.
+# `reverse_proxy` proxies WebSocket upgrades (Socket.IO, the M50 terminal WS path)
+# transparently — no extra directive needed.
+
+api.iverto.com {
+	encode gzip zstd
+
+	# This backend (this repo) — API_PREFIX=gate
+	handle /gate/* {
+		reverse_proxy 127.0.0.1:8031 {
+			# Polls the app's unprefixed health endpoint independently of the /gate
+			# prefix, so Caddy stops routing here if the app is up but unhealthy.
+			health_uri /health
+			health_interval 10s
+			health_timeout 5s
+		}
+	}
+
+	# Sibling NestJS app — API_PREFIX=other
+	handle /other/* {
+		reverse_proxy 127.0.0.1:8032 {
+			health_uri /health
+			health_interval 10s
+			health_timeout 5s
+		}
+	}
+
+	handle {
+		respond "Not Found" 404
+	}
+
+	log {
+		output file /var/log/caddy/api.iverto.com.log
+		format json
+	}
+}

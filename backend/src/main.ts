@@ -12,6 +12,15 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
+  // Namespaces every HTTP route under /API_PREFIX/* so this app can share a single Caddy
+  // instance (and a single EC2 host) with sibling Nest apps on other ports — Caddy routes
+  // by this same prefix without rewriting the path, so the app's own view of its routes
+  // matches exactly what the outside world calls. Unset in local dev (routes stay at /).
+  const apiPrefix: string = configService.get<string>('apiPrefix') || '';
+  if (apiPrefix) {
+    app.setGlobalPrefix(apiPrefix, { exclude: ['health'] });
+  }
+
   // Nest's default Express body parser caps requests at 100kb, which is far too small
   // for the base64-encoded visitor/staff/delivery photos the mobile guard app uploads
   // (JSON payload with photoBase64) — that produced "request entity too large" (413)
@@ -74,8 +83,12 @@ async function bootstrap() {
     .addTag('Mobile - Guard', 'Gate Directory Search, Visitor Entry Logging, Passcode Verification & Photo Streaming')
     .build();
 
+  // SwaggerModule.setup() mounts directly on the underlying Express instance rather than
+  // going through Nest's router, so it — like the WebSocket paths above — falls outside
+  // setGlobalPrefix and needs the prefix folded into its path explicitly.
+  const docsPath = apiPrefix ? `${apiPrefix}/api/docs` : 'api/docs';
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
+  SwaggerModule.setup(docsPath, app, document, {
     customSiteTitle: 'Iverto API Documentation',
     swaggerOptions: {
       persistAuthorization: true,
@@ -87,8 +100,8 @@ async function bootstrap() {
   const port = configService.get<number>('port') || 8031;
 
   await app.listen(port);
-  logger.log(`🚀 Iverto Backend running on port ${port}`);
-  logger.log(`📚 Swagger API Docs available at http://localhost:${port}/api/docs`);
+  logger.log(`🚀 Iverto Backend running on port ${port}${apiPrefix ? ` under /${apiPrefix}` : ''}`);
+  logger.log(`📚 Swagger API Docs available at http://localhost:${port}/${docsPath}`);
 }
 
 bootstrap();

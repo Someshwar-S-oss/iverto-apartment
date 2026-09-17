@@ -65,27 +65,27 @@ export const Modal: React.FC<ModalProps> = ({
     >
       {/* Backdrop with animated blur */}
       <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-md transition-opacity animate-overlay-in"
+        className="animate-overlay-in fixed inset-0 bg-[var(--ink-900)]/45 backdrop-blur-md transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Modal Container */}
       <div
-        className={`relative z-10 w-full ${sizeClasses[size]} glass rounded-2xl shadow-2xl border border-white/60 overflow-hidden flex flex-col max-h-[90vh] my-auto animate-scale-in ${className}`}
+        className={`animate-scale-in edge-brand relative z-10 my-auto flex max-h-[90vh] w-full flex-col overflow-hidden rounded-[var(--r-xl)] border border-[var(--line)] bg-white shadow-[var(--e4)] ${sizeClasses[size]} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         {(title || !hideCloseButton) && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100/80 bg-white/50 shrink-0">
-            <div className="text-lg font-semibold text-gray-900 leading-snug">
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--line)] px-6 py-4">
+            <div className="text-[17px] font-semibold leading-snug tracking-[-0.01em] text-[var(--ink-900)]">
               {title}
             </div>
             {!hideCloseButton && (
               <button
                 type="button"
                 onClick={onClose}
-                className="icon-btn -mr-2 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+                className="icon-btn -mr-2 shrink-0"
                 aria-label="Close modal"
               >
                 <X className="w-5 h-5" />
@@ -99,7 +99,7 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* Footer */}
         {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-gray-100/80 bg-white/40 shrink-0">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-[var(--line)] bg-[var(--ink-50)] px-6 py-4">
             {footer}
           </div>
         )}
