@@ -7,7 +7,9 @@ import {
   UseGuards,
   UseInterceptors,
   NotFoundException,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
@@ -21,6 +23,7 @@ import { units } from '../../database/schema';
 import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.interceptor';
 import { InvoicesService } from '../../modules/billing/invoices.service';
 import { PaymentsService, RazorpayVerifyDto } from '../../modules/billing/payments.service';
+import { BillingReportsService } from '../../modules/billing/billing-reports.service';
 
 @ApiTags('Mobile - Billing')
 @ApiBearerAuth('JWT-auth')
@@ -31,6 +34,7 @@ export class MobileBillingController {
     private readonly drizzle: DrizzleService,
     private readonly invoicesService: InvoicesService,
     private readonly paymentsService: PaymentsService,
+    private readonly billingReportsService: BillingReportsService,
   ) {}
 
   /** Mirrors MobileResidentController's identical helper — this controller has its own
@@ -62,6 +66,23 @@ export class MobileBillingController {
       throw new NotFoundException(`Invoice ${id} not found for this unit`);
     }
     return invoice;
+  }
+
+  @Get('invoices/:id/receipt')
+  @RequirePermission('billing.view', ScopeType.UNIT)
+  async getInvoiceReceipt(
+    @Param('unitId') unitId: string,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const societyId = await this.resolveSocietyId(unitId);
+    const invoice = await this.invoicesService.getDetail(societyId, id);
+    if (invoice.unitId !== unitId) {
+      throw new NotFoundException(`Invoice ${id} not found for this unit`);
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="receipt-${invoice.invoiceNumber}.pdf"`);
+    await this.billingReportsService.streamInvoiceReceiptPdf(societyId, id, res);
   }
 
   @Post('invoices/:id/pay/order')
