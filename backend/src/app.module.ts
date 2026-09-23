@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './config/config.module';
 import { RlsContextInterceptor } from './common/interceptors/rls-context.interceptor';
 import { AccountThrottlerGuard } from './common/guards/account-throttler.guard';
@@ -17,6 +18,7 @@ import { EntryEventsModule } from './modules/entry-events/entry-events.module';
 import { M50Module } from './modules/m50/m50.module';
 import { CommunityModule } from './modules/community/community.module';
 import { GatesModule } from './modules/gates/gates.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { HealthController } from './controllers/health.controller';
 import { SuperadminController } from './controllers/web/superadmin.controller';
 import { SocietyAdminController } from './controllers/web/society-admin.controller';
@@ -26,6 +28,9 @@ import {
   MobileGuardController,
   MobileEntryEventsController,
 } from './controllers/mobile/mobile-guard.controller';
+import { BillingAdminController } from './controllers/web/billing-admin.controller';
+import { MobileBillingController } from './controllers/mobile/mobile-billing.controller';
+import { BillingWebhookController } from './controllers/web/billing-webhook.controller';
 
 @Module({
   imports: [
@@ -39,6 +44,7 @@ import {
     // all, which matters more than usual here since initial passwords are deterministic
     // (`<phone>@iverto`) and passcodes are 6 digits.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
     RbacModule,
@@ -52,6 +58,7 @@ import {
     CommunityModule,
     GatesModule,
     IdempotencyModule,
+    BillingModule,
   ],
   controllers: [
     HealthController,
@@ -61,6 +68,9 @@ import {
     MobileResidentController,
     MobileGuardController,
     MobileEntryEventsController,
+    BillingAdminController,
+    MobileBillingController,
+    BillingWebhookController,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AccountThrottlerGuard },

@@ -36,6 +36,20 @@
       "when": 1788194757834,
       "tag": "0004_famous_natasha_romanoff",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789650185469,
+      "tag": "0005_far_ted_forrester",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789651778475,
+      "tag": "0006_wandering_cloak",
+      "breakpoints": true
     }
   ]
 }

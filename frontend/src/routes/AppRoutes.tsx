@@ -34,6 +34,7 @@ import {
   GatesPage as AdminGatesPage,
   NoticesPage as AdminNoticesPage,
   ComplaintsPage as AdminComplaintsPage,
+  BillingPage as AdminBillingPage,
 } from '../pages/admin';
 
 // Resident Pages
@@ -45,6 +46,7 @@ import {
   PasscodesPage as ResidentPasscodesPage,
   ActivityPage as ResidentActivityPage,
   CommunityPage as ResidentCommunityPage,
+  BillingPage as ResidentBillingPage,
 } from '../pages/resident';
 
 // Guard Pages
@@ -119,6 +121,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/admin/gates" element={<AdminGatesPage />} />
         <Route path="/admin/notices" element={<AdminNoticesPage />} />
         <Route path="/admin/complaints" element={<AdminComplaintsPage />} />
+        <Route path="/admin/billing" element={<AdminBillingPage />} />
       </Route>
 
       {/* 5. Resident Hierarchy (Scoped to UNIT and GLOBAL) */}
@@ -136,6 +139,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/resident/passcodes" element={<ResidentPasscodesPage />} />
         <Route path="/resident/activity" element={<ResidentActivityPage />} />
         <Route path="/resident/community" element={<ResidentCommunityPage />} />
+        <Route path="/resident/billing" element={<ResidentBillingPage />} />
       </Route>
 
       {/* 6. Guard Gate Kiosk Hierarchy (Scoped to GATE and GLOBAL) */}

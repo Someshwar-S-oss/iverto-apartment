@@ -13,3 +13,4 @@ export * from './passcodes';
 export * from './notifications';
 export * from './audit-logs';
 export * from './community';
+export * from './billing';

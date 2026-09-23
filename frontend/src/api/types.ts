@@ -302,3 +302,118 @@ export interface Complaint {
   resolvedAt?: string;
 }
 
+export type ChargeCategory = 'MAINTENANCE' | 'UTILITY' | 'FINE' | 'AMENITY' | 'OTHER';
+export type ChargeTiming = 'IMMEDIATE' | 'START_OF_MONTH';
+export type AdhocChargeStatus = 'PENDING_GENERATION' | 'INVOICED' | 'CANCELLED';
+export type InvoiceStatus = 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'CANCELLED';
+export type PaymentMethod = 'RAZORPAY' | 'MANUAL' | 'OFFLINE';
+export type PaymentStatus = 'CREATED' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
+
+export interface BillingSettings {
+  id: string;
+  societyId: string;
+  dueDayOfMonth: number;
+  reminderDaysBeforeDue: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BillingPlan {
+  id: string;
+  societyId: string;
+  name: string;
+  amount: number;
+  description?: string | null;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UnitBillingPlanAssignment {
+  unitId: string;
+  unitNumber: string;
+  buildingName?: string | null;
+  billingPlanId?: string | null;
+  billingPlanName?: string | null;
+  billingPlanAmount?: number | null;
+  assignedAt?: string | null;
+}
+
+export interface ChargeType {
+  id: string;
+  societyId: string;
+  name: string;
+  category: ChargeCategory;
+  defaultAmount?: number | null;
+  createdAt?: string;
+}
+
+export interface AdhocCharge {
+  id: string;
+  unitId: string;
+  unitNumber: string;
+  buildingName?: string | null;
+  title: string;
+  amount: number;
+  category: ChargeCategory;
+  timing: ChargeTiming;
+  status: AdhocChargeStatus;
+  batchId: string;
+  createdAt: string;
+}
+
+export interface InvoiceLineItem {
+  id: string;
+  invoiceId: string;
+  description: string;
+  category: ChargeCategory;
+  amount: number;
+  adhocChargeId?: string | null;
+  billingPlanId?: string | null;
+  createdAt?: string;
+}
+
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  unitId: string;
+  unitNumber?: string;
+  buildingName?: string | null;
+  billingCycleId: string;
+  periodLabel?: string;
+  totalAmount: number;
+  amountPaid: number;
+  status: InvoiceStatus;
+  dueDate: string;
+  generatedAt: string;
+  paidAt?: string | null;
+  lineItems?: InvoiceLineItem[];
+  payments?: Payment[];
+}
+
+export interface Payment {
+  id: string;
+  invoiceId: string;
+  unitId: string;
+  amount: number;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  paidAt?: string | null;
+  createdAt: string;
+}
+
+export interface BillingDashboardSummary {
+  totalUnits: number;
+  totalOutstanding: number;
+  overdueInvoices: number;
+  collectedThisMonth: number;
+}
+
+export interface RazorpayOrder {
+  orderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+  invoiceNumber: string;
+}
+

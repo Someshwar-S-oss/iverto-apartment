@@ -20,6 +20,8 @@ import {
   ChevronRight,
   Layers,
   Sparkles,
+  Receipt,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useRole } from '../../context/RoleContext';
@@ -156,6 +158,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               path: '/admin/complaints',
               icon: MessageSquareWarning,
             },
+            {
+              label: 'Billing & Maintenance',
+              path: '/admin/billing',
+              icon: Receipt,
+            },
           ],
         },
       ];
@@ -215,6 +222,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             label: 'Community',
             path: '/resident/community',
             icon: Megaphone,
+          },
+          {
+            label: 'My Bills',
+            path: '/resident/billing',
+            icon: Wallet,
           },
         ],
       },

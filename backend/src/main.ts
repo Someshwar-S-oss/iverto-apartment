@@ -3,7 +3,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
-import { json, urlencoded } from 'express';
+import { json, raw, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { SharedHttpIoAdapter } from './common/adapters/shared-http-io.adapter';
 
@@ -26,6 +26,17 @@ async function bootstrap() {
   // (JSON payload with photoBase64) — that produced "request entity too large" (413)
   // errors on visitor registration. Raise the limit to comfortably fit a compressed
   // camera capture encoded as base64 (~33% larger than the raw image).
+  // Razorpay's webhook signature is an HMAC over the exact raw request bytes — once the
+  // JSON body-parser below re-serializes/re-orders anything, the signature no longer
+  // matches. Give that one route the unparsed Buffer (checked by suffix, not prefix, so
+  // it still matches whether or not API_PREFIX is set) before the generic parser gets a
+  // chance to consume the stream; every other route is unaffected.
+  app.use((req, res, next) => {
+    if (req.originalUrl.endsWith('/api/v1/webhooks/razorpay')) {
+      return raw({ type: '*/*' })(req, res, next);
+    }
+    return next();
+  });
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 

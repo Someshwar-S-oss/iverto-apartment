@@ -5,6 +5,8 @@ export * from './superadmin.api';
 export * from './society-admin.api';
 export * from './resident.api';
 export * from './guard.api';
+export * from './billing-admin.api';
+export * from './billing-resident.api';
 
 export { default as apiClient } from './client';
 export { default as authApi } from './auth.api';
@@ -12,3 +14,5 @@ export { default as superadminApi } from './superadmin.api';
 export { default as societyAdminApi } from './society-admin.api';
 export { default as residentApi } from './resident.api';
 export { default as guardApi } from './guard.api';
+export { default as billingAdminApi } from './billing-admin.api';
+export { default as billingResidentApi } from './billing-resident.api';

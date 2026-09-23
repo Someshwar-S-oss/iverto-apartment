@@ -72,6 +72,8 @@ Idempotency-Key: 6f1a2b3c-4d5e-...  (any string unique to this one action)
 | `POST /mobile/gates/:gateId/entry-events/:id/exit` | A second `OUT` row for one crossing |
 | `POST /mobile/units/:unitId/approvals/:id/decide` | A spurious `409` on the client's own retry of an already-successful decision |
 | `POST /mobile/gates/:gateId/passcodes/verify` | A single-use passcode's use being spent twice |
+| `POST /mobile/units/:unitId/billing/invoices/:id/pay/order` | Two Razorpay orders created for one "Pay Now" tap (e.g. a double-tap or a retried request after a flaky connection) |
+| `POST /mobile/units/:unitId/billing/invoices/:id/pay/verify` | The same successful verification (and payment-applied notification) being replayed twice |
 
 Keyed on `(your account, that specific endpoint, the key you sent)` — reusing
 the same key value across two different endpoints, or two different
@@ -658,6 +660,268 @@ Returns the same shape as §3.8's response, as an array, newest first (`ORDER BY
 
 ---
 
+### 3.12. Billing & Payments (Razorpay)
+
+Maintenance bills, ad hoc charges, and their Razorpay checkout — everything a resident
+needs to see what they owe and pay it. `OWNER` and `TENANT` get both view and pay access;
+`FAMILY` is view-only (see the RBAC table below) — a `FAMILY` member can see the household's
+bills but the app should hide/disable "Pay Now" for them, since the backend will reject the
+attempt with `403` anyway.
+
+| Grant | `OWNER` | `TENANT` | `FAMILY` |
+| :--- | :--- | :--- | :--- |
+| `billing.view@UNIT` (list/view invoices) | ✅ | ✅ | ✅ |
+| `billing.pay@UNIT` (create order / verify payment) | ✅ | ✅ | ❌ |
+
+This is the same complete flow used by the resident **web** app — there is no separate
+"mobile-only" or "web-only" billing API; `/api/v1/mobile/units/:unitId/billing/*` is the one
+implementation both clients call.
+
+#### 3.12.1. List My Invoices
+- **Endpoint**: `GET /api/v1/mobile/units/:unitId/billing/invoices`
+
+#### Response (`200 OK`)
+```json
+[
+  {
+    "id": "8f2a1c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "invoiceNumber": "INV-2026-09-0014",
+    "unitId": "49208a9f-3958-450f-90e9-b541982bca10",
+    "unitNumber": "A-402",
+    "buildingName": "Tower A",
+    "billingCycleId": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "periodLabel": "2026-09",
+    "totalAmount": 3200,
+    "amountPaid": 0,
+    "status": "PENDING",
+    "dueDate": "2026-09-10",
+    "generatedAt": "2026-09-01T00:05:00.000Z",
+    "paidAt": null
+  }
+]
+```
+`status`: `PENDING | PARTIALLY_PAID | PAID | OVERDUE | CANCELLED`. Newest first
+(`ORDER BY generatedAt DESC`). No pagination — a unit's invoice history is small enough
+(one row per month, plus the occasional standalone `IMMEDIATE` charge invoice) that the
+client is expected to fetch the full list and filter/section it client-side (as the
+reference web implementation does: "Pending" vs. "History", see `BillingPage.tsx`).
+
+#### Errors
+- `404 Not Found` — `unitId` doesn't resolve to a real unit.
+
+---
+
+#### 3.12.2. Get Invoice Detail
+Full itemized breakdown plus every payment attempt (successful or not) recorded against it.
+
+- **Endpoint**: `GET /api/v1/mobile/units/:unitId/billing/invoices/:id`
+
+#### Response (`200 OK`)
+```json
+{
+  "id": "8f2a1c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "societyId": "593a8e9d-192e-4001-9a77-94819d9b8e8f",
+  "unitId": "49208a9f-3958-450f-90e9-b541982bca10",
+  "billingCycleId": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+  "source": "MONTHLY_COMBINED",
+  "invoiceNumber": "INV-2026-09-0014",
+  "totalAmount": 3200,
+  "amountPaid": 0,
+  "status": "PENDING",
+  "dueDate": "2026-09-10",
+  "generatedAt": "2026-09-01T00:05:00.000Z",
+  "paidAt": null,
+  "lineItems": [
+    { "id": "a1b2c3d4-...", "invoiceId": "8f2a1c3d-...", "description": "2BHK Standard", "category": "MAINTENANCE", "amount": 2500, "adhocChargeId": null, "billingPlanId": "d4e5f6a7-..." },
+    { "id": "b2c3d4e5-...", "invoiceId": "8f2a1c3d-...", "description": "Water Tanker", "category": "UTILITY", "amount": 700, "adhocChargeId": "c3d4e5f6-...", "billingPlanId": null }
+  ],
+  "payments": [
+    { "id": "e5f6a7b8-...", "invoiceId": "8f2a1c3d-...", "unitId": "49208a9f-...", "amount": 3200, "method": "RAZORPAY", "status": "FAILED", "razorpayOrderId": "order_ABC123", "razorpayPaymentId": null, "paidAt": null, "createdAt": "2026-09-02T11:00:00.000Z" }
+  ]
+}
+```
+- `source`: `MONTHLY_COMBINED` (the regular monthly bill) or `IMMEDIATE` (a standalone bill
+  for one urgent ad hoc charge, e.g. a same-day fine — see §3.12's line-item categories).
+- `category` on a line item: `MAINTENANCE | UTILITY | FINE | AMENITY | OTHER`.
+- `payments` includes **every** attempt, not just the successful one — a `FAILED` row from
+  an abandoned checkout is normal and expected; show only the latest/successful one
+  prominently, but the full list is useful for a "payment history" or support screen.
+- `payments[].method`: `RAZORPAY | MANUAL | OFFLINE` (the latter two are cash/cheque the
+  admin recorded from the web console — never created by this app).
+- `payments[].status`: `CREATED | SUCCESS | FAILED | REFUNDED`.
+
+#### Errors
+- `404 Not Found` — invoice doesn't exist, or it exists but belongs to a **different unit**
+  than the one in the URL (deliberately indistinguishable from "doesn't exist," same
+  cross-tenant-lookup convention as §3.2/§4.5 — don't infer "this bill was deleted" from a
+  bare 404 here).
+
+---
+
+#### 3.12.3. Create a Razorpay Payment Order
+Starts a payment attempt for an invoice's **current outstanding balance**
+(`totalAmount - amountPaid` — so a `PARTIALLY_PAID` invoice only charges the remainder,
+never the original total again). Call this immediately before opening the Razorpay
+checkout UI; don't create an order ahead of time and cache it, since the outstanding
+amount can change between screens (e.g. the admin recorded a manual part-payment).
+
+- **Endpoint**: `POST /api/v1/mobile/units/:unitId/billing/invoices/:id/pay/order`
+- **Idempotency-Key**: supported and recommended (§1.4) — key it to the one "Pay Now" tap.
+
+#### Response (`200 OK`)
+```json
+{
+  "orderId": "order_QqXyZ1234567890",
+  "amount": 320000,
+  "currency": "INR",
+  "keyId": "rzp_test_1234567890abcd",
+  "invoiceNumber": "INV-2026-09-0014"
+}
+```
+- **`amount` is in paise** (integer, smallest currency unit) — `320000` = ₹3,200.00. Pass it
+  to the Razorpay SDK exactly as returned; do not re-multiply/re-derive it from the invoice's
+  `totalAmount` (which is in rupees).
+- `keyId` is Razorpay's **publishable** key (`rzp_test_...` or `rzp_live_...`, safe to embed
+  in client code) — pass it as the SDK's `key` option. It is *not* a secret.
+- A `payments` row is inserted server-side with `status: "CREATED"` before this responds; if
+  the resident abandons the checkout, that row simply stays `CREATED`/becomes `FAILED` and
+  the invoice is unaffected — nothing needs cleaning up client-side.
+
+#### Errors
+- `404 Not Found` — invoice doesn't exist, or doesn't belong to this unit.
+- `400 Bad Request` — `"Invoice is already paid"` / `"...cancelled"` (invoice `status` is
+  already `PAID` or `CANCELLED`), or `"Nothing outstanding on this invoice"` (a
+  `PARTIALLY_PAID` invoice whose remainder is already ≤ 0 — shouldn't normally happen, but
+  guard for it rather than assuming "Pay Now" is always safe to show).
+- `503 Service Unavailable` — `"Payment gateway not configured..."`. The society's backend
+  deployment hasn't had `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` set yet. Show a
+  "online payments aren't set up for this society yet, contact your admin" message — this is
+  an expected, non-transient state for a newly onboarded society, not a bug to retry.
+- `403 Forbidden` — caller holds `billing.view@UNIT` but not `billing.pay@UNIT` (i.e. is
+  `FAMILY`, not `OWNER`/`TENANT`).
+
+---
+
+#### 3.12.4. Verify a Completed Payment
+Call this from the Razorpay SDK's success handler, immediately after checkout completes.
+This is what actually **applies** the payment to the invoice (bumps `amountPaid`, flips
+`status` to `PAID`/`PARTIALLY_PAID`) — a successful Razorpay checkout on its own does
+nothing to the invoice until this call (or the server-to-server webhook, §3.12.5) lands.
+
+- **Endpoint**: `POST /api/v1/mobile/units/:unitId/billing/invoices/:id/pay/verify`
+- **Idempotency-Key**: supported and recommended (§1.4).
+
+#### Request Body
+```json
+{
+  "razorpay_order_id": "order_QqXyZ1234567890",
+  "razorpay_payment_id": "pay_AbCdEf0987654321",
+  "razorpay_signature": "3f5e...b2a1"
+}
+```
+All three fields are exactly what the Razorpay SDK's success callback hands you — pass them
+through unchanged, don't rename the keys (they're snake_case on the wire deliberately, to
+match Razorpay's own field names).
+
+#### Response (`200 OK`)
+Same shape as §3.12.2 (invoice detail, now with `status: "PAID"` or `"PARTIALLY_PAID"` and
+`amountPaid` updated). Calling this again for an already-`SUCCESS` payment (e.g. the
+resident's connection dropped right after the first call went through) is a safe no-op — it
+just returns the current invoice detail again rather than double-applying the payment.
+
+#### Errors
+- `400 Bad Request` — one of the three fields is missing, or
+  `"Payment signature verification failed"` (the HMAC didn't check out — treat as "this
+  attempt failed," not a client bug, unless it happens consistently).
+- `404 Not Found` — `"No matching payment order found for this invoice"` — `razorpay_order_id`
+  doesn't match an order this endpoint created for this invoice/unit (e.g. stale/reused data).
+- `403 Forbidden` — same `billing.pay@UNIT` requirement as order creation.
+
+---
+
+#### 3.12.5. Client SDK Integration (React Native)
+
+The backend never talks to the Razorpay checkout UI directly — §3.12.3's response is
+everything the SDK needs, and §3.12.4 is the only call the SDK's result feeds back into.
+Using [`react-native-razorpay`](https://github.com/razorpay/react-native-razorpay) (the
+same checkout flow the web app's `checkout.js` integration in `lib/razorpay.ts` implements,
+just via a native SDK instead of an injected script):
+
+```javascript
+import RazorpayCheckout from 'react-native-razorpay';
+
+async function payInvoice(unitId, invoice, user) {
+  // 1. Ask the backend to open an order for the current outstanding balance.
+  const order = await billingApi.createPaymentOrder(unitId, invoice.id);
+
+  // 2. Open the native checkout with exactly what the backend returned.
+  const options = {
+    key: order.keyId,                 // publishable key, safe on-device
+    amount: order.amount,             // paise, already computed server-side
+    currency: order.currency,         // "INR"
+    order_id: order.orderId,          // ties this checkout to the server-created order
+    name: societyName,
+    description: `Invoice ${order.invoiceNumber}`,
+    prefill: { name: user.name, email: user.email, contact: user.phone },
+    theme: { color: '#cd0447' },
+  };
+
+  try {
+    const result = await RazorpayCheckout.open(options);
+    // result: { razorpay_order_id, razorpay_payment_id, razorpay_signature }
+
+    // 3. Verify with the backend — this is what actually marks the invoice paid.
+    const updatedInvoice = await billingApi.verifyPayment(unitId, invoice.id, result);
+    return updatedInvoice;
+  } catch (err) {
+    // User cancelled the checkout (err.code === 0 / "Payment Cancelled"), or Razorpay's own
+    // in-modal failure. Either way, nothing was applied server-side — it's always safe to
+    // let the resident tap "Pay Now" again from scratch (a fresh order, not a retry of this
+    // one), since an abandoned order simply never gets verified.
+    throw err;
+  }
+}
+```
+
+Key points for the app team:
+- **Never compute the amount client-side.** Always use `order.amount` from §3.12.3 verbatim
+  — it already reflects the exact outstanding balance at order-creation time, in paise.
+- **Never skip §3.12.4.** A successful native checkout result is not itself proof of
+  payment from the backend's point of view — only a verified signature is. Don't mark any
+  local/cached invoice state as paid until `verifyPayment` returns `200`.
+- **A checkout failure or cancellation needs no cleanup call.** There's no "cancel this
+  order" endpoint, and none is needed — an order that's never verified just sits as a
+  `CREATED`/`FAILED` `payments` row with no effect on the invoice.
+- **If §3.12.4 network-fails after the SDK succeeded**, retry it with the *same* `result`
+  object and an `Idempotency-Key` — don't discard the Razorpay result and start a new order,
+  since the payment was already captured by Razorpay at that point.
+
+#### 3.12.6. Server-to-Server Reconciliation (informational — not a client integration point)
+
+The backend also exposes `POST /api/v1/webhooks/razorpay`, a Razorpay-signed
+server-to-server callback that applies a payment the same way §3.12.4 does, as a safety net
+for a resident closing the app before the verify call fires. **This is not called by any
+client** — it exists purely so a payment still gets applied even if step 3 above never
+happens. Nothing for the app team to build here; mentioned only so it's clear why an invoice
+can occasionally flip to `PAID` without the app itself having called `pay/verify`.
+
+#### 3.12.7. Push Notifications for Billing Events
+
+Three push types (see §5.4's conventions) fire on the `billing` Android notification
+channel — unlike the events in §5.4's table, these are **push-only**; there is no paired
+WebSocket event, so don't wait on a socket event for these, only the FCM payload:
+
+| `type` | Fired when | Typical client action |
+| :--- | :--- | :--- |
+| `BILL_GENERATED` | A new invoice is generated for the unit (monthly run, or an immediate ad hoc charge). | Refresh the invoice list; consider a badge/banner. |
+| `PAYMENT_DUE` | An unpaid invoice is within the society's reminder window of its due date (default 3 days). | Surface a "bill due soon" reminder. |
+| `PAYMENT_CONFIRMED` | A payment (Razorpay or admin-recorded manual/offline) was successfully applied. | Refresh the affected invoice; clear any "Pay Now" loading state if the app is foregrounded. |
+
+All three carry `{ invoiceId }` in the push `data` payload for deep-linking straight to that
+invoice's detail screen.
+
+---
+
 ## 4. Guard Gate Kiosk APIs (`/api/v1/mobile/gates/:gateId`)
 
 `:gateId` may be either the physical gate identifier or the M50/ZKTeco device's own id — the backend resolves either to the owning society internally. Every route requires the caller to hold `GUARD` or `GUARD_SUPERVISOR` on that society.
@@ -1068,6 +1332,15 @@ Several of the events above also fan out an FCM push (independent of whether the
 2. Share the 6-digit code verbally/by text, or render `qrToken` as a QR code and share the image — either works at the gate.
 3. Guest arrives; guard scans/enters it via §4.4. `usesCount` increments; once it hits `maxUses`, further attempts get `200 OK` with `{verified: false, reason: "USED_UP"}` — not a `401`.
 4. Resident can `DELETE /api/v1/mobile/units/:unitId/passcodes/:id` at any time to invalidate it early (e.g. plans changed).
+
+### 6.5b. Resident: paying a bill (Razorpay)
+1. `GET /api/v1/mobile/units/:unitId/billing/invoices` (§3.12.1) to list bills; resident taps one that's `PENDING`/`PARTIALLY_PAID`/`OVERDUE`.
+2. Resident taps "Pay Now" → `POST .../billing/invoices/:id/pay/order` (§3.12.3) for the current outstanding balance.
+3. `503` here means the society hasn't configured Razorpay yet — show a contact-admin message, not a retry prompt.
+4. Open the Razorpay SDK checkout with the returned `orderId`/`amount`/`currency`/`keyId` (§3.12.5).
+5. On checkout success, `POST .../billing/invoices/:id/pay/verify` (§3.12.4) with the SDK's result — this is what actually marks the invoice paid.
+6. Refresh the invoice (or just use §3.12.4's response directly) and show the updated `status`/`amountPaid`. A `PAYMENT_CONFIRMED` push (§3.12.7) arrives around the same time as a secondary confirmation.
+7. If the resident cancels/closes the checkout modal, no cleanup call is needed — just let them retry "Pay Now" from step 2.
 
 ### 6.6. Guard: shift start
 1. Guard app logs in (§2.1) exactly like the resident app — same `/auth/login` endpoint, different account with a `GUARD`/`GUARD_SUPERVISOR` society role. Store both `accessToken` and `refreshToken`.

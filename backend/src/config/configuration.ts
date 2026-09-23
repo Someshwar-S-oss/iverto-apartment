@@ -43,6 +43,14 @@ export default () => {
       // cookie-based, so `credentials: true` is never combined with it (see main.ts).
       origins: corsOrigins,
     },
+    razorpay: {
+      // Left blank until real (even free test-mode) Razorpay keys are provisioned — see
+      // payments.service.ts, which checks for these and returns a clear "not configured"
+      // error instead of calling the SDK with an empty key.
+      keyId: process.env.RAZORPAY_KEY_ID || '',
+      keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+      webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+    },
     m50: {
       // The M50 raw WebSocket upgrade handler runs outside Nest's HTTP router (see
       // SharedHttpIoAdapter), so setGlobalPrefix in main.ts never touches it — the prefix

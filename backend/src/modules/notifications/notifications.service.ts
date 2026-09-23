@@ -20,6 +20,9 @@ const NOTIFICATION_CHANNEL_BY_TYPE: Record<string, string> = {
   DELIVERY_ARRIVED: 'deliveries',
   DELIVERY_SILENT: 'deliveries-silent',
   STAFF_MOVEMENT: 'staff',
+  BILL_GENERATED: 'billing',
+  PAYMENT_DUE: 'billing',
+  PAYMENT_CONFIRMED: 'billing',
 };
 
 @Injectable()

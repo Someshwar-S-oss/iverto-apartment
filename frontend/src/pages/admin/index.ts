@@ -7,6 +7,7 @@ export * from './DevicesPage';
 export * from './GatesPage';
 export * from './NoticesPage';
 export * from './ComplaintsPage';
+export * from './BillingPage';
 
 export { default as DashboardPage } from './DashboardPage';
 export { default as UnitsPage } from './UnitsPage';
@@ -17,3 +18,4 @@ export { default as DevicesPage } from './DevicesPage';
 export { default as GatesPage } from './GatesPage';
 export { default as NoticesPage } from './NoticesPage';
 export { default as ComplaintsPage } from './ComplaintsPage';
+export { default as BillingPage } from './BillingPage';

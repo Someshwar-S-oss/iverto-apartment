@@ -19,6 +19,8 @@ export const ROLE_GRANTS: Record<string, string[]> = {
     'complaint.create@UNIT',
     'complaint.view@UNIT',
     'notice.read@UNIT',
+    'billing.view@UNIT',
+    'billing.pay@UNIT',
   ],
   TENANT: [
     'approval.decide@UNIT',
@@ -28,13 +30,18 @@ export const ROLE_GRANTS: Record<string, string[]> = {
     'complaint.create@UNIT',
     'complaint.view@UNIT',
     'notice.read@UNIT',
+    'billing.view@UNIT',
+    'billing.pay@UNIT',
   ],
+  // FAMILY gets view-only — paying the flat's bills is left to the OWNER/TENANT of
+  // record, consistent with FAMILY already lacking member.invite/delivery_perm.edit.
   FAMILY: [
     'approval.decide@UNIT',
     'passcode.create@UNIT',
     'entry.view@UNIT',
     'complaint.view@UNIT',
     'notice.read@UNIT',
+    'billing.view@UNIT',
   ],
   // directory.read is @SOCIETY, not @GATE: a directory is society-wide data — the same
   // rows behind every barrier — per gate-management-architecture.md §4.1. It used to be
@@ -69,5 +76,6 @@ export const ROLE_GRANTS: Record<string, string[]> = {
     'notice.post@SOCIETY',
     'entry.view@SOCIETY',
     'complaint.manage@SOCIETY',
+    'billing.manage@SOCIETY',
   ],
 };
