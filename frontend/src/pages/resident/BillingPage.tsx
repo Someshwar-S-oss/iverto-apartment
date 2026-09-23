@@ -10,6 +10,9 @@ import {
   Search,
   X,
   Download,
+  Printer,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import { billingResidentApi } from '../../api/billing-resident.api';
 import type { Invoice } from '../../api/types';
@@ -30,6 +33,50 @@ const formatMoney = (amount: number | undefined | null): string =>
 
 const formatDate = (value?: string | null): string =>
   value ? new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+
+const formatDateTime = (value?: string | null): string =>
+  value
+    ? `${new Date(value).toLocaleDateString([], {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })} at ${new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : '—';
+
+const renderPaymentStatusStamp = (status: Invoice['status']) => {
+  switch (status) {
+    case 'PAID':
+      return (
+        <span className="inline-block px-3 py-1 text-xs font-black tracking-widest uppercase text-emerald-700 border-2 border-emerald-600 rounded bg-emerald-50/90 rotate-[-2deg] shadow-xs select-none">
+          PAID
+        </span>
+      );
+    case 'PARTIALLY_PAID':
+      return (
+        <span className="inline-block px-3 py-1 text-xs font-black tracking-widest uppercase text-blue-700 border-2 border-blue-600 rounded bg-blue-50/90 rotate-[-2deg] shadow-xs select-none">
+          PARTIALLY PAID
+        </span>
+      );
+    case 'OVERDUE':
+      return (
+        <span className="inline-block px-3 py-1 text-xs font-black tracking-widest uppercase text-rose-700 border-2 border-rose-600 rounded bg-rose-50/90 rotate-[-2deg] shadow-xs select-none">
+          OVERDUE
+        </span>
+      );
+    case 'CANCELLED':
+      return (
+        <span className="inline-block px-3 py-1 text-xs font-black tracking-widest uppercase text-gray-600 border-2 border-gray-400 rounded bg-gray-50/90 rotate-[-2deg] shadow-xs select-none">
+          CANCELLED
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-block px-3 py-1 text-xs font-black tracking-widest uppercase text-amber-700 border-2 border-amber-600 rounded bg-amber-50/90 rotate-[-2deg] shadow-xs select-none">
+          PENDING
+        </span>
+      );
+  }
+};
 
 const statusVariant = (status: Invoice['status']): BadgeVariant => {
   switch (status) {
@@ -206,6 +253,7 @@ export const BillingPage: React.FC = () => {
   }, [role]);
 
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [activeModalTab, setActiveModalTab] = useState<'breakdown' | 'receipt'>('breakdown');
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
   const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false);
@@ -362,6 +410,7 @@ export const BillingPage: React.FC = () => {
 
   const openDetail = async (invoice: Invoice) => {
     if (!unitId) return;
+    setActiveModalTab('breakdown');
     setIsLoadingDetail(true);
     try {
       const detail = await billingResidentApi.getInvoice(unitId, invoice.id);
@@ -407,14 +456,14 @@ export const BillingPage: React.FC = () => {
   };
 
   const handleDownloadReceipt = async (invoiceId: string) => {
-    if (!unitId) return;
+    if (!unitId || !selectedInvoice) return;
     setIsDownloadingReceipt(true);
     try {
       const blob = await billingResidentApi.downloadReceiptPdf(unitId, invoiceId);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Receipt-${selectedInvoice?.invoiceNumber || invoiceId}.pdf`;
+      a.download = `receipt-${selectedInvoice.invoiceNumber || invoiceId}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -424,6 +473,17 @@ export const BillingPage: React.FC = () => {
       toastError('Failed to download receipt PDF.');
     } finally {
       setIsDownloadingReceipt(false);
+    }
+  };
+
+  const handlePrintReceipt = () => {
+    if (activeModalTab !== 'receipt') {
+      setActiveModalTab('receipt');
+      setTimeout(() => {
+        window.print();
+      }, 150);
+    } else {
+      window.print();
     }
   };
 
@@ -808,139 +868,526 @@ export const BillingPage: React.FC = () => {
       {/* Invoice Details & Receipt Modal */}
       <Modal
         isOpen={Boolean(selectedInvoice)}
-        onClose={() => setSelectedInvoice(null)}
+        onClose={() => {
+          setSelectedInvoice(null);
+          setActiveModalTab('breakdown');
+        }}
+        size="xl"
         title={
           <div>
             <div className="font-bold text-gray-900 flex items-center gap-2">
               <Receipt className="w-4 h-4 text-[#cd0447]" />
               <span>{selectedInvoice?.invoiceNumber}</span>
+              {selectedInvoice && (
+                <Badge variant={statusVariant(selectedInvoice.status)} size="sm">
+                  {selectedInvoice.status.replace('_', ' ')}
+                </Badge>
+              )}
             </div>
             <div className="text-xs text-gray-500 font-normal mt-0.5">
-              {selectedInvoice?.periodLabel || 'Invoice Breakdown'}
+              {selectedInvoice?.periodLabel || 'Invoice Details & Official Receipt'}
             </div>
           </div>
         }
       >
         {isLoadingDetail ? (
-          <div className="p-6 text-center text-sm text-gray-500">Loading bill details...</div>
-        ) : selectedInvoice ? (
-          <div className="space-y-5">
-            {/* Charges Breakdown */}
-            <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
-              <div className="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Charges Breakdown
-              </div>
-              {(selectedInvoice.lineItems || []).length > 0 ? (
-                (selectedInvoice.lineItems || []).map((li) => (
-                  <div key={li.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                    <div className="space-y-0.5">
-                      <div className="font-medium text-gray-900">{li.description}</div>
-                      <div className="pt-0.5">{renderCategoryChip(li.category)}</div>
-                    </div>
-                    <div className="font-semibold text-gray-900">{formatMoney(li.amount)}</div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-4 py-3 text-xs text-gray-500 italic">
-                  Standard recurring maintenance assessment
-                </div>
-              )}
-              <div className="flex items-center justify-between px-4 py-3 bg-gray-50">
-                <div className="text-sm font-bold text-gray-900">Total Invoiced</div>
-                <div className="text-sm font-bold text-gray-900">
-                  {formatMoney(selectedInvoice.totalAmount)}
-                </div>
-              </div>
-            </div>
-
-            {/* Summary Metrics */}
-            <div className="grid grid-cols-3 gap-2.5 text-center">
-              <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
-                <div className="text-[11px] text-gray-500 font-medium">Paid</div>
-                <div className="text-sm font-bold text-emerald-600">
-                  {formatMoney(selectedInvoice.amountPaid)}
-                </div>
-              </div>
-              <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
-                <div className="text-[11px] text-gray-500 font-medium">Outstanding</div>
-                <div className="text-sm font-bold text-rose-600">{formatMoney(outstanding)}</div>
-              </div>
-              <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
-                <div className="text-[11px] text-gray-500 font-medium">Due Date</div>
-                <div className="text-sm font-bold text-gray-900">
-                  {formatDate(selectedInvoice.dueDate)}
-                </div>
-              </div>
-            </div>
-
-            {/* Payments & Payer Attribution */}
-            {(selectedInvoice.payments || []).length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Payment Records
-                </div>
-                <div className="space-y-2">
-                  {(selectedInvoice.payments || []).map((p) => (
-                    <div
-                      key={p.id}
-                      className="p-3 rounded-xl bg-gray-50 border border-gray-100 space-y-1"
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-semibold text-gray-900">
-                            {p.paidByName || 'Resident'}
-                          </span>
-                          {p.paidByRole && renderRoleBadge(p.paidByRole)}
-                          <span className="text-gray-400">•</span>
-                          <span className="text-gray-600">{p.method}</span>
-                        </div>
-                        <span className="font-bold text-emerald-600">{formatMoney(p.amount)}</span>
-                      </div>
-                      <div className="text-[11px] text-gray-500">
-                        {formatDate(p.paidAt || p.createdAt)}
-                        {p.note && ` • Note: ${p.note}`}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Modal Actions */}
-            <div className="space-y-2 pt-2 border-t border-gray-100">
-              {(Number(selectedInvoice.amountPaid) > 0 || selectedInvoice.status === 'PAID') && (
-                <button
-                  type="button"
-                  onClick={() => void handleDownloadReceipt(selectedInvoice.id)}
-                  disabled={isDownloadingReceipt}
-                  className="btn-secondary w-full flex items-center justify-center gap-2 !text-xs !py-2.5"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>
-                    {isDownloadingReceipt
-                      ? 'Downloading...'
-                      : 'Download Official Receipt (PDF)'}
-                  </span>
-                </button>
-              )}
-
-              {canPaySelected && (
-                <button
-                  type="button"
-                  onClick={() => void handlePayNow(selectedInvoice)}
-                  disabled={payingInvoiceId === selectedInvoice.id}
-                  className="btn-primary w-full flex items-center justify-center gap-2 !text-xs !py-2.5"
-                >
-                  <CreditCard className="w-4 h-4" />
-                  <span>
-                    {payingInvoiceId === selectedInvoice.id
-                      ? 'Opening...'
-                      : `Pay ${formatMoney(outstanding)} Now`}
-                  </span>
-                </button>
-              )}
-            </div>
+          <div className="p-8 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-[#cd0447]" />
+            <span>Loading bill details...</span>
           </div>
+        ) : selectedInvoice ? (
+          (() => {
+            const payerInfo = getInvoicePayerInfo(selectedInvoice, role);
+            const displayUnit = selectedInvoice.unitNumber
+              ? selectedInvoice.unitNumber.toLowerCase().startsWith('flat')
+                ? selectedInvoice.unitNumber
+                : `Flat ${selectedInvoice.unitNumber}`
+              : unitDisplay;
+            const displayBuilding = selectedInvoice.buildingName || buildingName;
+            const occupantName = user?.name || payerInfo.name || 'Resident';
+            const occupantRole = formatRoleName(role || payerInfo.payerRole || 'Resident');
+            const societyAddress =
+              (activeContext as any)?.societyAddress || 'Central Avenue, Residential Complex';
+
+            return (
+              <div className="space-y-6">
+                {/* Modal Tab Bar */}
+                <div className="flex p-1 bg-gray-100 rounded-xl no-print">
+                  <button
+                    type="button"
+                    onClick={() => setActiveModalTab('breakdown')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      activeModalTab === 'breakdown'
+                        ? 'bg-white text-gray-900 shadow-xs font-bold'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Receipt className="w-4 h-4 text-[#cd0447]" />
+                    <span>Breakdown & Payments</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveModalTab('receipt')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      activeModalTab === 'receipt'
+                        ? 'bg-white text-gray-900 shadow-xs font-bold'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4 text-[#cd0447]" />
+                    <span>Official Society Receipt</span>
+                  </button>
+                </div>
+
+                {/* Tab 1: Breakdown & Payments */}
+                {activeModalTab === 'breakdown' && (
+                  <div className="space-y-5 animate-fade-in">
+                    {/* Charges Breakdown */}
+                    <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                      <div className="px-4 py-2.5 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        Charges Breakdown
+                      </div>
+                      {(selectedInvoice.lineItems || []).length > 0 ? (
+                        (selectedInvoice.lineItems || []).map((li) => (
+                          <div key={li.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                            <div className="space-y-0.5">
+                              <div className="font-medium text-gray-900">{li.description}</div>
+                              <div className="pt-0.5">{renderCategoryChip(li.category)}</div>
+                            </div>
+                            <div className="font-semibold text-gray-900">{formatMoney(li.amount)}</div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-xs text-gray-500 italic">
+                          Standard recurring maintenance assessment
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
+                        <div className="text-sm font-bold text-gray-900">Total Invoiced</div>
+                        <div className="text-sm font-bold text-gray-900">
+                          {formatMoney(selectedInvoice.totalAmount)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Financial Summary */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                      <div className="p-3 rounded-xl bg-gray-50 border border-gray-200/80">
+                        <div className="text-[11px] text-gray-500 font-medium">Total Invoiced</div>
+                        <div className="text-sm font-bold text-gray-900 mt-0.5">
+                          {formatMoney(selectedInvoice.totalAmount)}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-gray-50 border border-gray-200/80">
+                        <div className="text-[11px] text-gray-500 font-medium">Paid Amount</div>
+                        <div className="text-sm font-bold text-emerald-600 mt-0.5">
+                          {formatMoney(selectedInvoice.amountPaid)}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-gray-50 border border-gray-200/80">
+                        <div className="text-[11px] text-gray-500 font-medium">Outstanding</div>
+                        <div
+                          className={`text-sm font-bold mt-0.5 ${
+                            outstanding > 0 ? 'text-rose-600' : 'text-emerald-600'
+                          }`}
+                        >
+                          {formatMoney(outstanding)}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-gray-50 border border-gray-200/80">
+                        <div className="text-[11px] text-gray-500 font-medium">Due Date</div>
+                        <div className="text-sm font-bold text-gray-900 mt-0.5">
+                          {formatDate(selectedInvoice.dueDate)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Payment History Section */}
+                    <div className="space-y-3">
+                      <div className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+                        <span>Payment History</span>
+                        <span className="text-[11px] font-normal text-gray-500">
+                          {(selectedInvoice.payments || []).length} payment
+                          {(selectedInvoice.payments || []).length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      {(selectedInvoice.payments || []).length > 0 ? (
+                        <div className="space-y-2.5">
+                          {(selectedInvoice.payments || []).map((p) => {
+                            const txnId =
+                              (p as any).razorpayPaymentId || (p as any).razorpayOrderId || p.id;
+                            return (
+                              <div
+                                key={p.id}
+                                className="p-3.5 rounded-xl bg-gray-50 border border-gray-200/80 space-y-2 text-xs"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold text-gray-900">
+                                        {p.paidByName || occupantName}
+                                      </span>
+                                      {p.paidByRole && renderRoleBadge(p.paidByRole)}
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[11px] text-gray-500 flex-wrap">
+                                      <span className="font-medium text-gray-700 uppercase tracking-wide">
+                                        {p.method || 'ONLINE'}
+                                      </span>
+                                      <span>•</span>
+                                      <span>
+                                        Txn:{' '}
+                                        <span className="font-mono text-gray-600">{txnId}</span>
+                                      </span>
+                                      {p.note && (
+                                        <>
+                                          <span>•</span>
+                                          <span className="italic text-gray-600">{p.note}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <div className="font-bold text-emerald-600 text-sm">
+                                      {formatMoney(p.amount)}
+                                    </div>
+                                    <div className="text-[11px] text-gray-400 mt-0.5">
+                                      {formatDateTime(p.paidAt || p.createdAt)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-xl bg-gray-50/60 border border-dashed border-gray-200 text-center text-xs text-gray-500">
+                          No payments recorded yet for this invoice.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 2: Official Society Receipt */}
+                {activeModalTab === 'receipt' && (
+                  <div className="space-y-5 animate-fade-in">
+                    {/* Print Container */}
+                    <div
+                      id="official-society-receipt"
+                      className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xs text-gray-900"
+                    >
+                      {/* Society Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-gray-200">
+                        <div>
+                          <div className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">
+                            {societyName}
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-500 mt-0.5">
+                            {societyAddress}
+                          </div>
+                          <div className="mt-2 text-xs font-bold uppercase tracking-wider text-[#cd0447]">
+                            OFFICIAL MAINTENANCE BILL & PAYMENT RECEIPT
+                          </div>
+                        </div>
+                        <div className="text-left sm:text-right shrink-0">
+                          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                            Generated / Print Date
+                          </div>
+                          <div className="text-xs font-medium text-gray-700 mt-0.5">
+                            {formatDate(selectedInvoice.generatedAt || new Date().toISOString())}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Two-Column Details Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-gray-50/75 border border-gray-200/80 text-xs">
+                        {/* Left Details */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between sm:justify-start sm:gap-4">
+                            <span className="font-semibold text-gray-500 w-28 shrink-0">
+                              Unit / Flat:
+                            </span>
+                            <span className="font-bold text-gray-900">
+                              {displayUnit}{' '}
+                              {displayBuilding ? `(${displayBuilding})` : ''}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-start sm:gap-4">
+                            <span className="font-semibold text-gray-500 w-28 shrink-0">
+                              Resident:
+                            </span>
+                            <span className="font-medium text-gray-900">{occupantName}</span>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-start sm:gap-4">
+                            <span className="font-semibold text-gray-500 w-28 shrink-0">Role:</span>
+                            <span className="font-medium text-gray-900">{occupantRole}</span>
+                          </div>
+                        </div>
+
+                        {/* Right Details */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between sm:justify-start sm:gap-4">
+                            <span className="font-semibold text-gray-500 w-28 shrink-0">
+                              Invoice #:
+                            </span>
+                            <span className="font-mono font-bold text-gray-900">
+                              {selectedInvoice.invoiceNumber}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-start sm:gap-4">
+                            <span className="font-semibold text-gray-500 w-28 shrink-0">
+                              Billing Period:
+                            </span>
+                            <span className="font-medium text-gray-900">
+                              {selectedInvoice.periodLabel || '—'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-start sm:gap-4">
+                            <span className="font-semibold text-gray-500 w-28 shrink-0">
+                              Due Date:
+                            </span>
+                            <span className="font-medium text-gray-900">
+                              {formatDate(selectedInvoice.dueDate)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-start sm:gap-4 pt-1">
+                            <span className="font-semibold text-gray-500 w-28 shrink-0">
+                              Status:
+                            </span>
+                            <div>{renderPaymentStatusStamp(selectedInvoice.status)}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Clean Itemized Table of Charges */}
+                      <div className="space-y-2">
+                        <div className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                          Itemized Charges
+                        </div>
+                        <div className="overflow-x-auto rounded-xl border border-gray-200">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="bg-gray-100/90 text-gray-700 font-bold border-b border-gray-200">
+                                <th className="py-2.5 px-3 w-12 text-center">#</th>
+                                <th className="py-2.5 px-4">Description</th>
+                                <th className="py-2.5 px-4">Category</th>
+                                <th className="py-2.5 px-4 text-right">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {(selectedInvoice.lineItems || []).length > 0 ? (
+                                (selectedInvoice.lineItems || []).map((li, idx) => (
+                                  <tr key={li.id} className="hover:bg-gray-50/50">
+                                    <td className="py-2.5 px-3 text-center text-gray-400 font-medium">
+                                      {idx + 1}
+                                    </td>
+                                    <td className="py-2.5 px-4 font-medium text-gray-900">
+                                      {li.description}
+                                    </td>
+                                    <td className="py-2.5 px-4">{renderCategoryChip(li.category)}</td>
+                                    <td className="py-2.5 px-4 text-right font-semibold text-gray-900">
+                                      {formatMoney(li.amount)}
+                                    </td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td className="py-2.5 px-3 text-center text-gray-400">1</td>
+                                  <td className="py-2.5 px-4 text-gray-600">
+                                    Standard recurring maintenance assessment
+                                  </td>
+                                  <td className="py-2.5 px-4">{renderCategoryChip('MAINTENANCE')}</td>
+                                  <td className="py-2.5 px-4 text-right font-semibold text-gray-900">
+                                    {formatMoney(selectedInvoice.totalAmount)}
+                                  </td>
+                                </tr>
+                              )}
+                              <tr className="bg-gray-50/90 font-bold text-gray-900">
+                                <td
+                                  colSpan={3}
+                                  className="py-3 px-4 text-right uppercase tracking-wider text-[11px] text-gray-600"
+                                >
+                                  Total Invoiced Amount
+                                </td>
+                                <td className="py-3 px-4 text-right text-sm">
+                                  {formatMoney(selectedInvoice.totalAmount)}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Payment Settlement Table (if payments recorded) */}
+                      {(selectedInvoice.payments || []).length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                            Payment Settlement History
+                          </div>
+                          <div className="overflow-x-auto rounded-xl border border-gray-200">
+                            <table className="w-full text-left text-xs">
+                              <thead>
+                                <tr className="bg-gray-100/90 text-gray-700 font-bold border-b border-gray-200">
+                                  <th className="py-2.5 px-3">Date</th>
+                                  <th className="py-2.5 px-3">Method</th>
+                                  <th className="py-2.5 px-3">Txn Reference ID</th>
+                                  <th className="py-2.5 px-3">Payer Name & Role</th>
+                                  <th className="py-2.5 px-3 text-right">Amount Paid</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {(selectedInvoice.payments || []).map((p) => {
+                                  const pTxn =
+                                    (p as any).razorpayPaymentId ||
+                                    (p as any).razorpayOrderId ||
+                                    p.id;
+                                  const pName = p.paidByName || occupantName;
+                                  const pRole = formatRoleName(p.paidByRole || occupantRole);
+                                  return (
+                                    <tr key={p.id} className="hover:bg-gray-50/50">
+                                      <td className="py-2.5 px-3 text-gray-600 whitespace-nowrap">
+                                        {formatDate(p.paidAt || p.createdAt)}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-semibold text-gray-800 uppercase tracking-wide">
+                                        {p.method || 'ONLINE'}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-mono text-[11px] text-gray-600">
+                                        {pTxn}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-gray-800">
+                                        <span className="font-medium">{pName}</span>
+                                        {pRole && (
+                                          <span className="text-gray-500 ml-1">({pRole})</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right font-bold text-emerald-600 whitespace-nowrap">
+                                        {formatMoney(p.amount)}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Summary Box */}
+                      <div className="flex justify-end pt-2">
+                        <div className="w-full sm:w-80 bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2 text-xs">
+                          <div className="flex items-center justify-between text-gray-600">
+                            <span>Total Amount:</span>
+                            <span className="font-semibold text-gray-900">
+                              {formatMoney(selectedInvoice.totalAmount)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-gray-600">
+                            <span>Total Paid:</span>
+                            <span className="font-bold text-emerald-600">
+                              {formatMoney(selectedInvoice.amountPaid)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                            <span className="font-bold text-gray-900">Balance Outstanding:</span>
+                            <span
+                              className={`font-bold text-sm ${
+                                outstanding > 0 ? 'text-rose-600' : 'text-emerald-600'
+                              }`}
+                            >
+                              {formatMoney(outstanding)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Disclaimer / Verification Text */}
+                      <div className="pt-4 border-t border-gray-100 text-center text-[11px] text-gray-400 italic">
+                        This is a computer-generated tax invoice and payment receipt issued by{' '}
+                        {societyName} via Iverto Apartment Management.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Modal Bottom Action Bar */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-gray-200 no-print">
+                  <div className="flex items-center gap-2 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadReceipt(selectedInvoice.id)}
+                      disabled={isDownloadingReceipt}
+                      className="btn-secondary flex-1 sm:flex-initial flex items-center justify-center gap-2 !text-xs !py-2.5 !px-4"
+                      title="Download official PDF receipt file"
+                    >
+                      {isDownloadingReceipt ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-[#cd0447]" />
+                      ) : (
+                        <Download className="w-4 h-4 text-gray-600" />
+                      )}
+                      <span>
+                        {isDownloadingReceipt ? 'Downloading...' : 'Download PDF Receipt'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePrintReceipt}
+                      className="btn-secondary flex-1 sm:flex-initial flex items-center justify-center gap-2 !text-xs !py-2.5 !px-4"
+                      title="Print official receipt layout"
+                    >
+                      <Printer className="w-4 h-4 text-gray-600" />
+                      <span>Print Receipt</span>
+                    </button>
+                  </div>
+
+                  {canPaySelected && (
+                    <button
+                      type="button"
+                      onClick={() => void handlePayNow(selectedInvoice)}
+                      disabled={payingInvoiceId === selectedInvoice.id}
+                      className="btn-primary flex items-center justify-center gap-2 !text-xs !py-2.5 !px-5"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>
+                        {payingInvoiceId === selectedInvoice.id
+                          ? 'Opening...'
+                          : `Pay ${formatMoney(outstanding)} Now`}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Print CSS Stylesheet */}
+                <style>{`
+                  @media print {
+                    body * {
+                      visibility: hidden !important;
+                    }
+                    #official-society-receipt,
+                    #official-society-receipt * {
+                      visibility: visible !important;
+                    }
+                    #official-society-receipt {
+                      position: fixed !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100vw !important;
+                      height: auto !important;
+                      margin: 0 !important;
+                      padding: 32px !important;
+                      background: white !important;
+                      color: black !important;
+                      border: none !important;
+                      box-shadow: none !important;
+                      z-index: 999999 !important;
+                    }
+                    .no-print {
+                      display: none !important;
+                    }
+                  }
+                `}</style>
+              </div>
+            );
+          })()
         ) : null}
       </Modal>
     </div>
