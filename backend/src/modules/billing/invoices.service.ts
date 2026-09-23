@@ -11,8 +11,10 @@ import {
   invoiceLineItems,
   invoices,
   payments,
-  units,
   unitBillingPlans,
+  unitMemberships,
+  units,
+  users,
 } from '../../database/schema';
 
 const toDateString = (d: Date): string => d.toISOString().slice(0, 10);
@@ -393,12 +395,71 @@ export class InvoicesService {
       .orderBy(desc(invoiceLineItems.createdAt));
 
     const paymentRows = await this.drizzle.db
-      .select()
+      .select({
+        id: payments.id,
+        societyId: payments.societyId,
+        invoiceId: payments.invoiceId,
+        unitId: payments.unitId,
+        amount: payments.amount,
+        method: payments.method,
+        status: payments.status,
+        razorpayOrderId: payments.razorpayOrderId,
+        razorpayPaymentId: payments.razorpayPaymentId,
+        razorpaySignature: payments.razorpaySignature,
+        rawResponse: payments.rawResponse,
+        paidByUserId: payments.paidByUserId,
+        paidAt: payments.paidAt,
+        createdAt: payments.createdAt,
+        userName: users.name,
+        userEmail: users.email,
+        membershipRole: unitMemberships.role,
+      })
       .from(payments)
+      .leftJoin(users, eq(payments.paidByUserId, users.id))
+      .leftJoin(
+        unitMemberships,
+        and(
+          eq(payments.paidByUserId, unitMemberships.userId),
+          eq(payments.unitId, unitMemberships.unitId),
+        ),
+      )
       .where(eq(payments.invoiceId, invoiceId))
       .orderBy(desc(payments.createdAt));
 
-    return { ...invoice, lineItems, payments: paymentRows };
+    const enrichedPayments = paymentRows.map((row) => {
+      const rawResponse = row.rawResponse as Record<string, any> | null;
+      let paidByName: string | null = row.userName ?? null;
+      if (!paidByName && (row.method === 'MANUAL' || row.method === 'OFFLINE')) {
+        paidByName = 'Society Admin';
+      }
+
+      const paidByEmail: string | null = row.userEmail ?? null;
+
+      let paidByRole: 'OWNER' | 'TENANT' | 'FAMILY' | 'SOCIETY_ADMIN' | 'UNKNOWN' = 'UNKNOWN';
+      if (row.membershipRole) {
+        paidByRole = row.membershipRole as any;
+      } else if (rawResponse?.payerRole) {
+        paidByRole = rawResponse.payerRole;
+      } else if (row.method === 'MANUAL' || row.method === 'OFFLINE') {
+        paidByRole = 'SOCIETY_ADMIN';
+      } else {
+        paidByRole = 'UNKNOWN';
+      }
+
+      const note: string | null = rawResponse?.note ?? null;
+
+      const { userName, userEmail, membershipRole, ...paymentFields } = row;
+
+      return {
+        ...paymentFields,
+        paidByName,
+        paidByEmail,
+        paidByRole,
+        note,
+      };
+    });
+
+    return { ...invoice, lineItems, payments: enrichedPayments };
   }
 
   async voidInvoice(societyId: string, invoiceId: string) {

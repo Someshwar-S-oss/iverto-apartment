@@ -128,4 +128,176 @@ describe('InvoicesService', () => {
       expect(await service.markOverdue(new Date('2026-09-15'))).toBe(0);
     });
   });
+
+  describe('getDetail', () => {
+    const mockInvoice = {
+      id: 'inv-1',
+      societyId: 'soc-1',
+      unitId: 'unit-1',
+      totalAmount: 1500,
+      amountPaid: 1500,
+      status: 'PAID',
+    };
+    const mockLineItems = [
+      { id: 'li-1', invoiceId: 'inv-1', amount: 1500, description: 'Maintenance charge' },
+    ];
+
+    function createQueryChain(result: any) {
+      const chain: any = {
+        from: jest.fn().mockReturnThis(),
+        leftJoin: jest.fn().mockReturnThis(),
+        innerJoin: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(result),
+      };
+      chain.then = (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject);
+      return chain;
+    }
+
+    it('enriches payment with payer identity and unit role for online payment', async () => {
+      const paymentRow = {
+        id: 'pay-1',
+        societyId: 'soc-1',
+        invoiceId: 'inv-1',
+        unitId: 'unit-1',
+        amount: 1500,
+        method: 'RAZORPAY',
+        status: 'SUCCESS',
+        razorpayOrderId: 'order_1',
+        razorpayPaymentId: 'pay_1',
+        razorpaySignature: 'sig_1',
+        rawResponse: {},
+        paidByUserId: 'user-1',
+        paidAt: new Date(),
+        createdAt: new Date(),
+        userName: 'Alice Smith',
+        userEmail: 'alice@example.com',
+        membershipRole: 'TENANT',
+      };
+
+      mockDb.select
+        .mockReturnValueOnce(createQueryChain([mockInvoice]))
+        .mockReturnValueOnce(createQueryChain(mockLineItems))
+        .mockReturnValueOnce(createQueryChain([paymentRow]));
+
+      const result = await service.getDetail('soc-1', 'inv-1');
+
+      expect(result.id).toBe('inv-1');
+      expect(result.lineItems).toEqual(mockLineItems);
+      expect(result.payments).toHaveLength(1);
+
+      const p = result.payments[0];
+      expect(p.paidByName).toBe('Alice Smith');
+      expect(p.paidByEmail).toBe('alice@example.com');
+      expect(p.paidByRole).toBe('TENANT');
+      expect(p.note).toBeNull();
+      expect(p.amount).toBe(1500);
+      expect(p.method).toBe('RAZORPAY');
+    });
+
+    it('enriches manual payment falling back to Society Admin and uses rawResponse payerRole and note', async () => {
+      const paymentRow = {
+        id: 'pay-2',
+        societyId: 'soc-1',
+        invoiceId: 'inv-1',
+        unitId: 'unit-1',
+        amount: 1500,
+        method: 'MANUAL',
+        status: 'SUCCESS',
+        razorpayOrderId: null,
+        razorpayPaymentId: null,
+        razorpaySignature: null,
+        rawResponse: { note: 'Cash collected by security', payerRole: 'OWNER', recordedByAdmin: 'admin-1' },
+        paidByUserId: 'admin-1',
+        paidAt: new Date(),
+        createdAt: new Date(),
+        userName: null,
+        userEmail: null,
+        membershipRole: null,
+      };
+
+      mockDb.select
+        .mockReturnValueOnce(createQueryChain([mockInvoice]))
+        .mockReturnValueOnce(createQueryChain(mockLineItems))
+        .mockReturnValueOnce(createQueryChain([paymentRow]));
+
+      const result = await service.getDetail('soc-1', 'inv-1');
+
+      const p = result.payments[0];
+      expect(p.paidByName).toBe('Society Admin');
+      expect(p.paidByEmail).toBeNull();
+      expect(p.paidByRole).toBe('OWNER');
+      expect(p.note).toBe('Cash collected by security');
+    });
+
+    it('falls back to SOCIETY_ADMIN when manual/offline payment has no membership or rawResponse payerRole', async () => {
+      const paymentRow = {
+        id: 'pay-3',
+        societyId: 'soc-1',
+        invoiceId: 'inv-1',
+        unitId: 'unit-1',
+        amount: 1500,
+        method: 'OFFLINE',
+        status: 'SUCCESS',
+        razorpayOrderId: null,
+        razorpayPaymentId: null,
+        razorpaySignature: null,
+        rawResponse: null,
+        paidByUserId: 'admin-1',
+        paidAt: new Date(),
+        createdAt: new Date(),
+        userName: null,
+        userEmail: null,
+        membershipRole: null,
+      };
+
+      mockDb.select
+        .mockReturnValueOnce(createQueryChain([mockInvoice]))
+        .mockReturnValueOnce(createQueryChain(mockLineItems))
+        .mockReturnValueOnce(createQueryChain([paymentRow]));
+
+      const result = await service.getDetail('soc-1', 'inv-1');
+
+      const p = result.payments[0];
+      expect(p.paidByName).toBe('Society Admin');
+      expect(p.paidByRole).toBe('SOCIETY_ADMIN');
+      expect(p.note).toBeNull();
+    });
+
+    it('falls back to UNKNOWN when online payment has no membership role', async () => {
+      const paymentRow = {
+        id: 'pay-4',
+        societyId: 'soc-1',
+        invoiceId: 'inv-1',
+        unitId: 'unit-1',
+        amount: 1500,
+        method: 'RAZORPAY',
+        status: 'SUCCESS',
+        razorpayOrderId: 'order_4',
+        razorpayPaymentId: 'pay_4',
+        razorpaySignature: 'sig_4',
+        rawResponse: {},
+        paidByUserId: 'external-user',
+        paidAt: new Date(),
+        createdAt: new Date(),
+        userName: 'External User',
+        userEmail: 'external@example.com',
+        membershipRole: null,
+      };
+
+      mockDb.select
+        .mockReturnValueOnce(createQueryChain([mockInvoice]))
+        .mockReturnValueOnce(createQueryChain(mockLineItems))
+        .mockReturnValueOnce(createQueryChain([paymentRow]));
+
+      const result = await service.getDetail('soc-1', 'inv-1');
+
+      const p = result.payments[0];
+      expect(p.paidByName).toBe('External User');
+      expect(p.paidByRole).toBe('UNKNOWN');
+      expect(p.note).toBeNull();
+    });
+  });
 });
+

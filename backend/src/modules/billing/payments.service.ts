@@ -180,7 +180,13 @@ export class PaymentsService {
   async recordManualPayment(
     societyId: string,
     invoiceId: string,
-    dto: { amount: number; method: 'MANUAL' | 'OFFLINE'; note?: string },
+    dto: {
+      amount: number;
+      method: 'MANUAL' | 'OFFLINE';
+      note?: string;
+      payerUserId?: string;
+      payerRole?: 'OWNER' | 'TENANT';
+    },
     adminUserId: string,
   ) {
     if (!dto.amount || dto.amount <= 0) throw new BadRequestException('amount must be greater than 0');
@@ -204,8 +210,12 @@ export class PaymentsService {
       amount: dto.amount,
       method: dto.method,
       status: 'SUCCESS',
-      rawResponse: dto.note ? { note: dto.note } : undefined,
-      paidByUserId: adminUserId,
+      rawResponse: {
+        note: dto.note,
+        payerRole: dto.payerRole,
+        recordedByAdmin: adminUserId,
+      },
+      paidByUserId: dto.payerUserId ? dto.payerUserId : adminUserId,
       paidAt: new Date(),
     });
 

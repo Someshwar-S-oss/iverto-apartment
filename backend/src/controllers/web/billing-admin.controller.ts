@@ -44,6 +44,8 @@ export interface RecordManualPaymentDto {
   amount: number;
   method: 'MANUAL' | 'OFFLINE';
   note?: string;
+  payerUserId?: string;
+  payerRole?: 'OWNER' | 'TENANT';
 }
 
 @ApiTags('Web - Billing')
