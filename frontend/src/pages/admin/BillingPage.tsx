@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { billingAdminApi } from '../../api/billing-admin.api';
+import { billingResidentApi } from '../../api/billing-resident.api';
 import { societyAdminApi } from '../../api/society-admin.api';
 import type {
   AdhocCharge,
@@ -30,6 +31,7 @@ import type {
   ChargeType,
   Invoice,
   InvoiceStatus,
+  PaymentMethod,
   Unit,
   UnitBillingPlanAssignment,
 } from '../../api/types';
@@ -83,6 +85,67 @@ const chargeStatusVariant = (status: AdhocChargeStatus): BadgeVariant => {
     default:
       return 'warning';
   }
+};
+
+const renderPayerRoleBadge = (role?: string | null) => {
+  if (!role) return null;
+  const normalized = role.toUpperCase();
+  if (normalized === 'OWNER') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+        Owner
+      </span>
+    );
+  }
+  if (normalized === 'TENANT') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
+        Tenant
+      </span>
+    );
+  }
+  if (normalized === 'SOCIETY_ADMIN') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-300">
+        Admin Recorded
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-700 border border-gray-200">
+      {role}
+    </span>
+  );
+};
+
+const renderPaymentMethodBadge = (method?: PaymentMethod | string | null) => {
+  const m = (method || '').toUpperCase();
+  if (m === 'RAZORPAY') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+        Razorpay
+      </span>
+    );
+  }
+  if (m === 'MANUAL') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+        Cash
+      </span>
+    );
+  }
+  if (m === 'OFFLINE') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+        Cheque / Transfer
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-50 text-gray-700 border border-gray-200">
+      {method || 'OTHER'}
+    </span>
+  );
 };
 
 export const BillingPage: React.FC = () => {
@@ -1091,7 +1154,9 @@ const InvoicesTab: React.FC<{
   const [manualAmount, setManualAmount] = useState('');
   const [manualMethod, setManualMethod] = useState<'MANUAL' | 'OFFLINE'>('MANUAL');
   const [manualNote, setManualNote] = useState('');
+  const [payerRole, setPayerRole] = useState<'OWNER' | 'TENANT' | ''>('OWNER');
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+  const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false);
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter((inv) => {
@@ -1102,6 +1167,13 @@ const InvoicesTab: React.FC<{
     });
   }, [invoices, statusFilter, searchQuery]);
 
+  const handleCloseDetail = () => {
+    setSelectedInvoice(null);
+    setManualAmount('');
+    setManualNote('');
+    setPayerRole('OWNER');
+  };
+
   const openDetail = async (invoice: Invoice) => {
     if (!societyId) return;
     setIsLoadingDetail(true);
@@ -1110,6 +1182,7 @@ const InvoicesTab: React.FC<{
       setSelectedInvoice(detail);
       setManualAmount('');
       setManualNote('');
+      setPayerRole('OWNER');
     } catch {
       toastError('Failed to load invoice detail.');
     } finally {
@@ -1124,7 +1197,7 @@ const InvoicesTab: React.FC<{
       await billingAdminApi.voidInvoice(societyId, invoiceToVoid.id);
       toastSuccess('Invoice voided.');
       setInvoiceToVoid(null);
-      setSelectedInvoice(null);
+      handleCloseDetail();
       onChanged();
     } catch (err: any) {
       toastError(err?.response?.data?.message || 'Failed to void invoice.');
@@ -1142,17 +1215,43 @@ const InvoicesTab: React.FC<{
         amount: Number(manualAmount),
         method: manualMethod,
         note: manualNote.trim() || undefined,
+        payerRole: (payerRole || undefined) as 'OWNER' | 'TENANT' | undefined,
       });
       toastSuccess('Payment recorded.');
       const detail = await billingAdminApi.getInvoice(societyId, selectedInvoice.id);
       setSelectedInvoice(detail);
       setManualAmount('');
       setManualNote('');
+      setPayerRole('OWNER');
       onChanged();
     } catch (err: any) {
       toastError(err?.response?.data?.message || 'Failed to record payment.');
     } finally {
       setIsRecordingPayment(false);
+    }
+  };
+
+  const handleDownloadReceipt = async () => {
+    if (!selectedInvoice) return;
+    setIsDownloadingReceipt(true);
+    try {
+      const blob = await billingResidentApi.downloadReceiptPdf(
+        selectedInvoice.unitId,
+        selectedInvoice.id,
+      );
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-${selectedInvoice.invoiceNumber || selectedInvoice.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toastSuccess('Receipt PDF downloaded successfully.');
+    } catch (err: any) {
+      toastError(err?.response?.data?.message || 'Failed to download PDF receipt.');
+    } finally {
+      setIsDownloadingReceipt(false);
     }
   };
 
@@ -1230,15 +1329,35 @@ const InvoicesTab: React.FC<{
       {/* Invoice Detail Modal */}
       <Modal
         isOpen={Boolean(selectedInvoice)}
-        onClose={() => setSelectedInvoice(null)}
+        onClose={handleCloseDetail}
         size="lg"
         title={
-          <div className="flex items-center justify-between w-full">
+          <div className="flex items-center justify-between w-full pr-2">
             <div>
               <div className="font-bold text-gray-900">{selectedInvoice?.invoiceNumber}</div>
               <div className="text-xs text-gray-500 font-normal mt-0.5">Unit {selectedInvoice?.unitNumber} • {selectedInvoice?.periodLabel}</div>
             </div>
-            {selectedInvoice && <Badge variant={invoiceStatusVariant(selectedInvoice.status)} size="sm">{selectedInvoice.status.replace('_', ' ')}</Badge>}
+            <div className="flex items-center gap-2">
+              {selectedInvoice && (
+                <Badge variant={invoiceStatusVariant(selectedInvoice.status)} size="sm">
+                  {selectedInvoice.status.replace('_', ' ')}
+                </Badge>
+              )}
+              {selectedInvoice && (
+                <button
+                  type="button"
+                  onClick={handleDownloadReceipt}
+                  disabled={isDownloadingReceipt}
+                  title="Download PDF Receipt"
+                  className="btn-secondary !text-xs !py-1 !px-2.5 flex items-center gap-1.5 text-gray-700"
+                >
+                  <Download className={`w-3.5 h-3.5 ${isDownloadingReceipt ? 'animate-bounce' : ''}`} />
+                  <span className="hidden sm:inline">
+                    {isDownloadingReceipt ? 'Downloading...' : 'PDF Receipt'}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
         }
       >
@@ -1280,56 +1399,165 @@ const InvoicesTab: React.FC<{
             {(selectedInvoice.payments || []).length > 0 && (
               <div>
                 <div className="text-xs font-bold text-gray-700 mb-2">Payment History</div>
-                <div className="space-y-1.5">
-                  {(selectedInvoice.payments || []).map((p) => (
-                    <div key={p.id} className="flex items-center justify-between text-xs px-3 py-1.5 rounded-lg bg-gray-50">
-                      <span className="text-gray-600">{p.method} • {p.status} • {formatDate(p.paidAt || p.createdAt)}</span>
-                      <span className="font-semibold text-gray-900">{formatMoney(p.amount)}</span>
-                    </div>
-                  ))}
+                <div className="space-y-2">
+                  {(selectedInvoice.payments || []).map((p) => {
+                    const txnId = (p as any).razorpayPaymentId || (p as any).razorpayOrderId;
+                    return (
+                      <div
+                        key={p.id}
+                        className="p-3 rounded-xl bg-gray-50 border border-gray-200/80 space-y-1.5 text-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {p.paidByName ? (
+                              <span className="font-bold text-gray-900">{p.paidByName}</span>
+                            ) : (
+                              <span className="font-medium text-gray-500">Payer unspecified</span>
+                            )}
+                            {renderPayerRoleBadge(p.paidByRole)}
+                            {renderPaymentMethodBadge(p.method)}
+                          </div>
+                          <span className="font-bold text-gray-900">{formatMoney(p.amount)}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-gray-500 flex-wrap gap-x-3 gap-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>{formatDate(p.paidAt || p.createdAt)}</span>
+                            <span className="text-gray-300">•</span>
+                            <Badge
+                              variant={
+                                p.status === 'SUCCESS'
+                                  ? 'success'
+                                  : p.status === 'FAILED'
+                                    ? 'danger'
+                                    : 'neutral'
+                              }
+                              size="sm"
+                            >
+                              {p.status}
+                            </Badge>
+                            {txnId && (
+                              <>
+                                <span className="text-gray-300">•</span>
+                                <span className="font-mono text-gray-500">Ref: {txnId}</span>
+                              </>
+                            )}
+                          </div>
+                          {p.note && (
+                            <div className="text-gray-600 italic">
+                              Note: {p.note}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
             {outstanding > 0 && selectedInvoice.status !== 'CANCELLED' && (
-              <form onSubmit={handleRecordPayment} className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-3">
-                <div className="text-xs font-bold text-amber-800">Record a manual/offline payment</div>
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    max={outstanding}
-                    required
-                    value={manualAmount}
-                    onChange={(e) => setManualAmount(e.target.value)}
-                    placeholder={`Up to ${formatMoney(outstanding)}`}
-                    className="input-base !text-xs"
-                  />
-                  <select value={manualMethod} onChange={(e) => setManualMethod(e.target.value as 'MANUAL' | 'OFFLINE')} className="input-base !text-xs cursor-pointer">
-                    <option value="MANUAL">Cash</option>
-                    <option value="OFFLINE">Cheque / Bank Transfer</option>
-                  </select>
-                  <input type="text" value={manualNote} onChange={(e) => setManualNote(e.target.value)} placeholder="Note (optional)" className="input-base !text-xs" />
+              <form onSubmit={handleRecordPayment} className="p-4 rounded-xl bg-amber-50/90 border border-amber-200/90 space-y-3.5">
+                <div className="text-xs font-bold text-amber-900 flex items-center justify-between">
+                  <span>Record a manual/offline payment</span>
+                  <span className="text-[11px] font-normal text-amber-700">Outstanding: {formatMoney(outstanding)}</span>
                 </div>
-                <button type="submit" disabled={isRecordingPayment || !manualAmount} className="btn-primary !text-xs !py-1.5 w-full">
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Payment Amount (₹) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={outstanding}
+                      required
+                      value={manualAmount}
+                      onChange={(e) => setManualAmount(e.target.value)}
+                      placeholder={`Up to ${formatMoney(outstanding)}`}
+                      className="input-base !text-xs w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Payment Method <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={manualMethod}
+                      onChange={(e) => setManualMethod(e.target.value as 'MANUAL' | 'OFFLINE')}
+                      className="input-base !text-xs cursor-pointer w-full"
+                    >
+                      <option value="MANUAL">Cash</option>
+                      <option value="OFFLINE">Cheque / Bank Transfer</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Received From (Resident Role)
+                    </label>
+                    <select
+                      value={payerRole}
+                      onChange={(e) => setPayerRole(e.target.value as 'OWNER' | 'TENANT' | '')}
+                      className="input-base !text-xs cursor-pointer w-full"
+                    >
+                      <option value="OWNER">Unit Owner (Landlord)</option>
+                      <option value="TENANT">Unit Tenant (Resident)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Payment Note / Ref
+                    </label>
+                    <input
+                      type="text"
+                      value={manualNote}
+                      onChange={(e) => setManualNote(e.target.value)}
+                      placeholder="e.g. Cheque #482910, NEFT/UPI Ref, or Cash receipt no."
+                      className="input-base !text-xs w-full"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isRecordingPayment || !manualAmount}
+                  className="btn-primary !text-xs !py-2 w-full mt-1"
+                >
                   {isRecordingPayment ? 'Recording...' : 'Record Payment'}
                 </button>
               </form>
             )}
 
             <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-              {selectedInvoice.status !== 'PAID' && selectedInvoice.status !== 'CANCELLED' ? (
+              <div className="flex items-center gap-2">
+                {selectedInvoice.status !== 'PAID' && selectedInvoice.status !== 'CANCELLED' ? (
+                  <button
+                    type="button"
+                    onClick={() => setInvoiceToVoid(selectedInvoice)}
+                    className="btn-secondary !text-xs !py-1.5 !px-3 flex items-center gap-1.5 text-rose-600"
+                  >
+                    <XIcon className="w-3.5 h-3.5" />
+                    <span>Void Invoice</span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => setInvoiceToVoid(selectedInvoice)}
-                  className="btn-secondary !text-xs !py-1.5 !px-3 flex items-center gap-1.5 text-rose-600"
+                  onClick={handleDownloadReceipt}
+                  disabled={isDownloadingReceipt}
+                  className="btn-secondary !text-xs !py-1.5 !px-3 flex items-center gap-1.5 text-gray-700"
                 >
-                  <XIcon className="w-3.5 h-3.5" />
-                  <span>Void Invoice</span>
+                  <Download className={`w-3.5 h-3.5 ${isDownloadingReceipt ? 'animate-bounce' : ''}`} />
+                  <span>{isDownloadingReceipt ? 'Downloading...' : 'Download PDF Receipt'}</span>
                 </button>
-              ) : <span />}
-              <button type="button" onClick={() => setSelectedInvoice(null)} className="btn-secondary !text-xs !py-1.5 !px-3">
+              </div>
+              <button type="button" onClick={handleCloseDetail} className="btn-secondary !text-xs !py-1.5 !px-3">
                 Close
               </button>
             </div>
