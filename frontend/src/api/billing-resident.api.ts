@@ -52,6 +52,23 @@ export const billingResidentApi = {
     );
     return response.data;
   },
+
+  /** Returns the direct URL for streaming the receipt PDF. */
+  getReceiptPdfUrl: (unitId: string, invoiceId: string): string =>
+    `/api/v1/mobile/units/${unitId}/billing/invoices/${invoiceId}/receipt`,
+
+  /** Alias for getReceiptPdfUrl. */
+  getReceiptUrl: (unitId: string, invoiceId: string): string =>
+    `/api/v1/mobile/units/${unitId}/billing/invoices/${invoiceId}/receipt`,
+
+  /** Downloads the receipt PDF as a Blob. */
+  downloadReceiptPdf: async (unitId: string, invoiceId: string): Promise<Blob> => {
+    const response = await apiClient.get(
+      `/api/v1/mobile/units/${unitId}/billing/invoices/${invoiceId}/receipt`,
+      { responseType: 'blob' },
+    );
+    return response.data;
+  },
 };
 
 export default billingResidentApi;

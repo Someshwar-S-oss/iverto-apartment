@@ -398,8 +398,20 @@ export interface Payment {
   amount: number;
   method: PaymentMethod;
   status: PaymentStatus;
+  paidByName?: string | null;
+  paidByEmail?: string | null;
+  paidByRole?: 'OWNER' | 'TENANT' | 'FAMILY' | 'SOCIETY_ADMIN' | 'UNKNOWN' | null;
+  note?: string | null;
   paidAt?: string | null;
   createdAt: string;
+}
+
+export interface RecordManualPaymentPayload {
+  amount: number;
+  method: 'MANUAL' | 'OFFLINE';
+  note?: string;
+  payerUserId?: string;
+  payerRole?: 'OWNER' | 'TENANT';
 }
 
 export interface BillingDashboardSummary {

@@ -10,8 +10,11 @@ import type {
   ChargeType,
   Invoice,
   InvoiceStatus,
+  RecordManualPaymentPayload,
   UnitBillingPlanAssignment,
 } from './types';
+
+export type { RecordManualPaymentPayload };
 
 export interface CreateBillingPlanPayload {
   name: string;
@@ -47,12 +50,6 @@ export interface CreateAdhocChargePayload {
   unitIds?: string[];
   billingPlanId?: string;
   allUnitsInSociety?: boolean;
-}
-
-export interface RecordManualPaymentPayload {
-  amount: number;
-  method: 'MANUAL' | 'OFFLINE';
-  note?: string;
 }
 
 export interface GenerateBillsResult {
